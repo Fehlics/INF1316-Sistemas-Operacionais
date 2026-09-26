@@ -4,7 +4,7 @@
 /* Executa todos os testes e informa quantos passaram. */
 int main(void) {
     int aprovados = 0;
-    int total = 3;
+    int total = 4;
     puts("=== TESTES DO SIMULADOR ===");
 
     if (testar_processos()) {
@@ -26,6 +26,13 @@ int main(void) {
         puts("[PASSOU] Aplicacao aguarda resposta da syscall");
     } else {
         puts("[FALHOU] Aplicacao aguarda resposta da syscall");
+    }
+
+    if (testar_pipes()) {
+        aprovados++;
+        puts("[PASSOU] Seis buffers dos pipes simulados");
+    } else {
+        puts("[FALHOU] Seis buffers dos pipes simulados");
     }
 
     printf("\nResultado: %d de %d testes passaram.\n", aprovados, total);

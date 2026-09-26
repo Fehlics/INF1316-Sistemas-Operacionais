@@ -20,6 +20,50 @@ typedef struct {
 static FilaBloqueados fila_leitura, fila_escrita;
 static int fd_respostas[QUANTIDADE_APLICACOES];
 
+/*
+ * Tres pipes bidirecionais, cada um com dois buffers de inteiros.
+ * O indice do buffer e o indice do REMETENTE:
+ * 0: A1 -> A2, 1: A2 -> A1, 2: A3 -> A4, 3: A4 -> A3,
+ * 4: A5 -> A6, 5: A6 -> A5.
+ *
+ * Uma aplicacao executa no maximo MAX_ITERACOES-1 passos;
+ * por isso esse tamanho comporta todas as escritas que ela pode pedir.
+ */
+typedef struct {
+    int dados[MAX_ITERACOES];
+    int inicio;
+    int quantidade;
+} BufferPipe;
+
+static BufferPipe buffers[QUANTIDADE_APLICACOES];
+
+/* A1 faz par com A2, A3 com A4 e A5 com A6. Indices: 0 a 5. */
+static int indice_parceiro(int indice) {
+    return indice % 2 == 0 ? indice + 1 : indice - 1;
+}
+
+/* Adiciona um contador ao final do buffer do remetente (ordem FIFO). */
+static int guardar_pc(int remetente, int pc) {
+    BufferPipe *buffer = &buffers[remetente];
+    if (buffer->quantidade == MAX_ITERACOES) return 0;
+    int fim = (buffer->inicio + buffer->quantidade) % MAX_ITERACOES;
+    buffer->dados[fim] = pc;
+    buffer->quantidade++;
+    return 1;
+}
+
+/* Retira o valor mais antigo enviado pelo parceiro ou retorna zero. */
+static int receber_pc(int destinatario) {
+    int remetente = indice_parceiro(destinatario);
+    BufferPipe *buffer = &buffers[remetente];
+    if (buffer->quantidade == 0) return 0;
+    int pc = buffer->dados[buffer->inicio];
+    buffer->inicio = (buffer->inicio + 1) % MAX_ITERACOES;
+    buffer->quantidade--;
+    return pc;
+}
+
+
 static int enfileirar(FilaBloqueados *fila, int indice) {
     if (fila->quantidade == QUANTIDADE_APLICACOES) return 0;
     int fim = (fila->inicio + fila->quantidade) % QUANTIDADE_APLICACOES;
@@ -104,24 +148,42 @@ static void tratar_syscall(PedidoSyscall pedido) {
 
 /* IRQ1 e IRQ2 concluem sempre o primeiro pedido da respectiva fila. */
 static void concluir_syscall(FilaBloqueados *fila, Operacao operacao) {
-    int indice = desenfileirar(fila);
-    if (indice == -1) {
+    if (fila->quantidade == 0) {
         printf("[Kernel] IRQ%d ignorada: fila vazia.\n",
                operacao == RECEBER ? 1 : 2);
         return;
     }
+
+    /* Consultamos a primeira posicao sem retira-la ainda. Assim, se um
+     * buffer estiver cheio, a escrita permanece bloqueada e nao se perde. */
+    int indice = fila->indices[fila->inicio];
     Processo *p = &processos[indice];
     if (p->operacao_pendente != operacao) {
         fprintf(stderr, "[Kernel] Erro: operacao na fila inconsistente.\n");
         return;
     }
 
-    /* TODO: os seis buffers simulados serao implementados na proxima fase.
-     * Por enquanto, RECV concluido devolve zero (buffer vazio). */
+    if (operacao == ENVIAR) {
+        if (!guardar_pc(indice, p->pc)) {
+            printf("[Kernel] Buffer de A%d cheio; SEND continua bloqueado.\n",
+                   p->id);
+            return;
+        }
+        printf("[Kernel] A%d enviou PC=%d para A%d (%d no buffer).\n",
+               p->id, p->pc, indice_parceiro(indice) + 1,
+               buffers[indice].quantidade);
+    } else {
+        p->n = receber_pc(indice);
+        printf("[Kernel] A%d recebeu N=%d de A%d (%d no buffer).\n",
+               p->id, p->n, indice_parceiro(indice) + 1,
+               buffers[indice_parceiro(indice)].quantidade);
+    }
+
+    desenfileirar(fila);
     RespostaSyscall resposta = {
         .id_aplicacao = p->id,
         .operacao = operacao,
-        .n = operacao == RECEBER ? 0 : p->n
+        .n = p->n
     };
     ssize_t escritos;
     do {
@@ -131,12 +193,8 @@ static void concluir_syscall(FilaBloqueados *fila, Operacao operacao) {
         perror("Kernel: write resposta");
         return;
     }
-    if (operacao == RECEBER) {
-        p->n = resposta.n;
-        p->leituras++;
-    } else {
-        p->escritas++;
-    }
+    if (operacao == RECEBER) p->leituras++;
+    else p->escritas++;
     p->operacao_pendente = NENHUMA_OPERACAO;
     p->estado = PRONTO;
     printf("[Kernel] Concluiu %s de A%d; A%d agora PRONTO.\n",
