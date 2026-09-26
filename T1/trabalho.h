@@ -20,7 +20,7 @@ typedef enum { NENHUMA_OPERACAO, RECEBER, ENVIAR } Operacao;
 typedef enum { IRQ0, IRQ1, IRQ2 } TipoIRQ;
 
 /* Os dois produtores escrevem na MESMA pipe, informando o tipo. */
-typedef enum { EVENTO_INTERRUPCAO, EVENTO_SYSCALL } TipoEvento;
+typedef enum { EVENTO_INTERRUPCAO, EVENTO_SYSCALL, EVENTO_TERMINO } TipoEvento;
 
 typedef struct {
     int id_aplicacao;
@@ -32,11 +32,14 @@ typedef struct {
 typedef struct {
     TipoEvento tipo;
     TipoIRQ irq;        /* Utilizado somente se tipo = EVENTO_INTERRUPCAO. */
-    PedidoSyscall pedido; /* Utilizado somente se tipo = EVENTO_SYSCALL. */
+    /* EVENTO_SYSCALL: operacao, PC e N da syscall.
+       EVENTO_TERMINO: id_aplicacao, PC e N finais; operacao = NENHUMA. */
+    PedidoSyscall pedido;
 } MensagemControle;
 
 typedef struct {
     int id_aplicacao;
+    /* NENHUMA_OPERACAO e usada para confirmar EVENTO_TERMINO. */
     Operacao operacao;
     int n;
 } RespostaSyscall;

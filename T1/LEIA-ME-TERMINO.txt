@@ -1,0 +1,69 @@
+TRABALHO T1 - ETAPA: RECONHECIMENTO DO TERMINO DE PROCESSOS
+
+BASE DO PROJETO
+Esta etapa parte da versao "adequada ao conteudo das aulas", distribuida
+anteriormente. Nao utiliza arquivos .sh, poll/select, threads, /proc nem
+novos mecanismos de sincronizacao. Os conceitos empregados (fork/exec,
+waitpid, pipes, sinais, estados de processos e escalonamento) aparecem
+nos capitulos e laboratorios enviados pelo aluno. De Cap2-IPC.pdf,
+consideramos exclusivamente as paginas 1 a 44.
+
+ARQUIVOS ALTERADOS
+- trabalho.h: adiciona EVENTO_TERMINO ao enum TipoEvento. Aproveita os
+  campos de MensagemControle para passar id, PC e N finais.
+- Application.c: depois de executar todas as iteracoes, escreve um unico
+  evento EVENTO_TERMINO na pipe de controle. Aguarda uma confirmacao na
+  pipe individual antes de encerrar normalmente. Sem configuracao de teste,
+  o PC comeca em 0 e chega exatamente a MAX_ITERACOES (5000).
+- KernelSim.c: ao receber o evento, registra PC e N, marca TERMINADO,
+  confirma o evento para a aplicacao e a exclui das proximas escolhas do
+  Round Robin. Caso a aplicacao tenha sido parada apos enviar o aviso,
+  o KernelSim usa SIGCONT apenas para permitir que ela saia naturalmente.
+  Quando a ultima termina, apresenta um aviso unico. IRQ0 posteriores nao
+  voltam a executar processos terminados.
+- Simulador.c: verifica os filhos periodicamente com waitpid(-1, WNOHANG),
+  recolhe os que terminaram e evita mante-los como zumbis. Continua
+  aguardando Ctrl+C, preservando os processos infinitos KernelSim e
+  InterController. No encerramento, nao tenta recolher PIDs ja recolhidos.
+- testes/apoio.c e apoio.h: acrescentam o envio controlado do evento.
+- testes/TesteTermino.c: novo modulo para testar o termino, os estados e
+  a retirada de processos do escalonador.
+- testes/Testes.c e testes.h: incluem o sexto teste.
+
+COMO EXECUTAR (LINUX; DENTRO DA PASTA T1)
+gcc -Wall -Wextra Simulador.c -o Simulador
+gcc -Wall -Wextra KernelSim.c -o KernelSim
+gcc -Wall -Wextra InterController.c -o InterController
+gcc -Wall -Wextra Application.c -o Application
+
+gcc -Wall -Wextra testes/Testes.c testes/apoio.c \
+    testes/TesteProcessos.c testes/TesteEscalonamento.c \
+    testes/TesteFilas.c testes/TesteSyscalls.c testes/TestePipes.c \
+    testes/TesteTermino.c -o Testes
+./Testes
+
+TESTE MANUAL DO TERMINO NATURAL
+No diretorio T1, apos recompilar tudo:
+    TESTE_MAX_ITERACOES=2 TESTE_SEM_SYSCALL=1 ./Simulador
+
+Espere as mensagens "[Kernel] A1 TERMINADO ..." ate A6, seguidas por
+"[Kernel] Todas as seis aplicacoes terminaram." e
+"[Simulador] As seis aplicacoes foram recolhidas.".
+Depois pressione Ctrl+C para encerrar o KernelSim e o controlador.
+
+As variaveis TESTE_MAX_ITERACOES e TESTE_SEM_SYSCALL servem EXCLUSIVAMENTE
+para encurtar a execucao e desabilitar as syscalls aleatorias nos testes.
+Nao defina essas variaveis na execucao normal: as seis aplicacoes usam o
+limite exigido no enunciado e continuam realizando SEND/RECV aleatorios.
+TESTE_SYSCALL=1 foi mantida para o teste deterministico ja existente.
+
+TESTES REALIZADOS NO AMBIENTE DE DESENVOLVIMENTO
+- Compilacao com -std=gnu11 -Wall -Wextra -Werror -pedantic.
+- Bateria de seis testes em C aprovada.
+- Teste integrado real (limite=2): KernelSim reconheceu e Simulador
+  recolheu os seis processos; Ctrl+C encerrou o simulador normalmente.
+
+PROXIMAS ETAPAS
+- Atualizacao/registro de PC e N em TODAS as trocas de contexto;
+- Pausa e retomada coordenada com Ctrl+Z, com relatorio de estados;
+- Testes de todas as funcionalidades restantes e relatorio final.

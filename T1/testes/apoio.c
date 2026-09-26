@@ -159,6 +159,16 @@ int enviar_pedido_teste(AmbienteTeste *a, int id, Operacao op, int pc, int n) {
     return write(a->controle, &m, sizeof m) == (ssize_t)sizeof m;
 }
 
+int enviar_termino_teste(AmbienteTeste *a, int id, int pc, int n) {
+    MensagemControle m = {0};
+    m.tipo = EVENTO_TERMINO;
+    m.pedido.id_aplicacao = id;
+    m.pedido.operacao = NENHUMA_OPERACAO;
+    m.pedido.pc = pc;
+    m.pedido.n = n;
+    return write(a->controle, &m, sizeof m) == (ssize_t)sizeof m;
+}
+
 int enviar_irq_teste(AmbienteTeste *a, TipoIRQ irq) {
     MensagemControle m = {0};
     m.tipo = EVENTO_INTERRUPCAO;

@@ -24,6 +24,7 @@ static FilaBloqueados fila_leitura, fila_escrita;
 static BufferPipe buffers[QUANTIDADE_APLICACOES];
 static int respostas[QUANTIDADE_APLICACOES];
 static int atual = -1, ultimo_escalonado = -1;
+static int quantidade_terminados = 0;
 
 static int parceiro(int indice) {
     return indice % 2 == 0 ? indice + 1 : indice - 1;
@@ -77,7 +78,9 @@ static void escalonar(void) {
             return;
         }
     }
-    puts("[Kernel] Nenhuma aplicacao pronta.");
+    /* Evita repetir a mesma mensagem a cada IRQ0 depois do ultimo fim. */
+    if (quantidade_terminados < QUANTIDADE_APLICACOES)
+        puts("[Kernel] Nenhuma aplicacao pronta.");
 }
 
 static void tratar_pedido(PedidoSyscall pedido) {
@@ -144,6 +147,51 @@ static void concluir(FilaBloqueados *f, Operacao op) {
     if (atual == -1) escalonar();
 }
 
+/* Mensagem de termino voluntario recebida pela mesma pipe de controle. */
+static void tratar_termino(PedidoSyscall aviso) {
+    if (aviso.id_aplicacao < 1 || aviso.id_aplicacao > QUANTIDADE_APLICACOES ||
+        aviso.operacao != NENHUMA_OPERACAO) {
+        puts("[Kernel] Aviso de termino invalido.");
+        return;
+    }
+    int indice = aviso.id_aplicacao - 1;
+    Processo *p = &processos[indice];
+    if (p->estado == TERMINADO) return; /* Evita contar o mesmo fim duas vezes. */
+    if (p->estado == BLOQUEADO_LEITURA || p->estado == BLOQUEADO_ESCRITA) {
+        printf("[Kernel] Aviso de termino de A%d rejeitado: syscall pendente.\n",
+               p->id);
+        return;
+    }
+
+    int estava_executando = atual == indice;
+    int estava_parado = p->estado == PRONTO;
+    p->pc = aviso.pc;
+    p->n = aviso.n;
+    p->operacao_pendente = NENHUMA_OPERACAO;
+    p->estado = TERMINADO;
+    quantidade_terminados++;
+    printf("[Kernel] A%d TERMINADO (PC=%d, N=%d, leituras=%d, escritas=%d).\n",
+           p->id, p->pc, p->n, p->leituras, p->escritas);
+
+    /* Confirma o recebimento, antes de o processo Unix efetuar exit. */
+    RespostaSyscall resposta = {p->id, NENHUMA_OPERACAO, p->n};
+    ssize_t escritos;
+    do { escritos = write(respostas[indice], &resposta, sizeof resposta); }
+    while (escritos < 0 && errno == EINTR);
+    if (escritos != (ssize_t)sizeof resposta)
+        perror("Kernel: confirmacao de termino");
+
+    /* Um processo preemptado apos escrever o aviso ainda pode estar parado.
+       Retoma-o somente para receber a confirmacao e encerrar. */
+    if (estava_parado) kill(p->pid, SIGCONT);
+    if (estava_executando) {
+        atual = -1;
+        escalonar();
+    }
+    if (quantidade_terminados == QUANTIDADE_APLICACOES)
+        puts("[Kernel] Todas as seis aplicacoes terminaram.");
+}
+
 static void tratar_interrupcao(TipoIRQ irq) {
     switch (irq) {
         case IRQ0: escalonar(); break;
@@ -189,6 +237,8 @@ int main(int argc, char *argv[]) {
             tratar_interrupcao(mensagem.irq);
         else if (mensagem.tipo == EVENTO_SYSCALL)
             tratar_pedido(mensagem.pedido);
+        else if (mensagem.tipo == EVENTO_TERMINO)
+            tratar_termino(mensagem.pedido);
     }
     close(controle);
     for (int i = 0; i < QUANTIDADE_APLICACOES; i++) close(respostas[i]);

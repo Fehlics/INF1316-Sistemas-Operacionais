@@ -46,6 +46,43 @@ static int solicitar_syscall(int fd_controle, int fd_resposta, int id,
     return 1;
 }
 
+/* Avisa o kernel quando a ultima iteracao foi executada.
+ * Aguarda confirmacao para que o kernel registre o termino antes do exit. */
+static int avisar_termino(int controle, int fd_resposta, int id, int pc, int n) {
+    MensagemControle mensagem = {0};
+    mensagem.tipo = EVENTO_TERMINO;
+    mensagem.pedido.id_aplicacao = id;
+    mensagem.pedido.operacao = NENHUMA_OPERACAO;
+    mensagem.pedido.pc = pc;
+    mensagem.pedido.n = n;
+
+    ssize_t escritos;
+    do { escritos = write(controle, &mensagem, sizeof mensagem); }
+    while (escritos < 0 && errno == EINTR);
+    if (escritos != (ssize_t)sizeof mensagem) {
+        perror("Application: aviso de termino");
+        return 0;
+    }
+
+    /* Se for interrompida por SIGSTOP, o kernel enviara SIGCONT para
+       permitir que a aplicacao receba a confirmacao e termine. */
+    RespostaSyscall resposta;
+    size_t total = 0;
+    while (total < sizeof resposta) {
+        ssize_t lidos = read(fd_resposta, (char *)&resposta + total,
+                             sizeof resposta - total);
+        if (lidos == 0) return 0;
+        if (lidos < 0) {
+            if (errno == EINTR) continue;
+            perror("Application: confirmacao de termino");
+            return 0;
+        }
+        total += (size_t)lidos;
+    }
+    return resposta.id_aplicacao == id &&
+           resposta.operacao == NENHUMA_OPERACAO;
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 4) {
         fprintf(stderr, "Uso: Application ID FD_CONTROLE FD_RESPOSTA\n");
@@ -56,18 +93,28 @@ int main(int argc, char *argv[]) {
     int fd_resposta = atoi(argv[3]);
     if (id < 1 || id > QUANTIDADE_APLICACOES ||
         fd_controle < 0 || fd_resposta < 0) return 1;
-    int pc = 1, n = 0;
+    int pc = 0, n = 0;
+    int limite = MAX_ITERACOES;
+    /* Reducao EXCLUSIVA para teste: sem a variavel sao 5000 iteracoes. */
+    const char *max_teste = getenv("TESTE_MAX_ITERACOES");
+    if (max_teste != NULL) {
+        int valor = atoi(max_teste);
+        if (valor >= 1 && valor <= MAX_ITERACOES) limite = valor;
+    }
     int teste = getenv("TESTE_SYSCALL") != NULL;
+    int sem_syscall = getenv("TESTE_SEM_SYSCALL") != NULL;
     srand((unsigned)time(NULL) ^ (unsigned)getpid());
     setbuf(stdout, NULL);
 
-    while (pc < MAX_ITERACOES) {
+    /* PC vale 0 antes da primeira iteracao e "limite" ao finalizar.
+       Assim sao executadas exatamente MAX_ITERACOES iteracoes normalmente. */
+    while (pc < limite) {
         pc++;
         sleep(1);
         Operacao operacao = NENHUMA_OPERACAO;
-        if (teste && pc == 2 && id == 1) operacao = ENVIAR;
-        else if (teste && pc == 2 && id == 2) operacao = RECEBER;
-        else if (!teste && rand() % 100 < 15)
+        if (!sem_syscall && teste && pc == 2 && id == 1) operacao = ENVIAR;
+        else if (!sem_syscall && teste && pc == 2 && id == 2) operacao = RECEBER;
+        else if (!sem_syscall && !teste && rand() % 100 < 15)
             operacao = rand() % 2 == 0 ? ENVIAR : RECEBER;
 
         if (operacao != NENHUMA_OPERACAO &&
@@ -79,9 +126,11 @@ int main(int argc, char *argv[]) {
         }
         if (pc % 100 == 0) printf("[A%d] PC=%d N=%d\n", id, pc, n);
     }
-    printf("[A%d] Finalizada.\n", id);
-    /* Proxima etapa: avisar explicitamente o termino ao KernelSim. */
+    printf("[A%d] Finalizada (PC=%d, N=%d).\n", id, pc, n);
+    int confirmado = avisar_termino(fd_controle, fd_resposta, id, pc, n);
+    if (confirmado)
+        printf("[A%d] Termino confirmado pelo KernelSim.\n", id);
     close(fd_controle);
     close(fd_resposta);
-    return 0;
+    return confirmado ? 0 : 1;
 }

@@ -1,0 +1,76 @@
+TRABALHO T1 — VERSAO ADEQUADA AO CONTEUDO DA DISCIPLINA
+
+DOCUMENTOS CONSIDERADOS
+- Cap1.pdf — conteudo completo;
+- Cap2-Proc-Escal.pdf — conteudo completo;
+- Cap2-IPC.pdf — SOMENTE ate a pagina 44 (semaforos);
+- Lab1-Fork-exec copy.pdf;
+- Lab 2-shmem copy.pdf;
+- Lab 3-Signals copy.pdf;
+- Lab 4-Pipes copy.pdf;
+- Lab 6-FIFO copy.pdf.
+
+TECNICAS USADAS E ONDE APARECEM NO MATERIAL
+- fork, exec, waitpid: Lab1, Cap1 e Cap2-Proc-Escal;
+- signal, kill, SIGSTOP, SIGCONT, pause: Lab 3-Signals, Cap1;
+- pipe, read, write, close, dup2: Lab 4-Pipes;
+- fila de bloqueados e buffers: Cap2-IPC ate pagina 44;
+- Round Robin e blocos de controle de processo: Cap2-Proc-Escal;
+- rand/srand: funcoes da biblioteca C, para os sorteios do enunciado.
+
+SIMPLIFICACOES REALIZADAS
+1. Simulador cria uma UNICA pipe de controle compartilhada por Application
+   e InterController. Ambos escrevem mensagens de tamanho fixo, identificadas
+   pelo campo 'tipo'; KernelSim e o unico leitor. Isso dispensa poll/select.
+2. Permanecem seis pipes reais individuais para respostas do KernelSim.
+   Elas nao sao os seis buffers simulados; estes ficam em vetores no KernelSim.
+3. Troca de sigaction por signal no Simulador, como visto no Lab 3.
+4. InterController usa usleep(500000), variacao simples de sleep necessaria
+   para representar o meio segundo exigido no enunciado. Essa funcao
+   especifica nao aparece explicitamente nos slides.
+5. Os testes nao leem /proc e nao usam poll. Reutilizam apenas pipes,
+   fork/exec, sinais, waitpid, dup2 e mensagens controladas. Um arquivo
+   de apoio em C evita repetir codigo em cada modulo.
+6. Os testes nao utilizam arquivos .sh, semaforos nem threads.
+
+FUNCAO DOS ARQUIVOS
+- Simulador.c: cria os oito processos filhos, pipe de controle e seis
+  pipes de resposta; recolhe os filhos que terminam e encerra com Ctrl+C.
+- InterController.c: envia eventos IRQ0, IRQ1 e IRQ2 na pipe de controle.
+- Application.c: envia syscalls SEND/RECV, aguarda a resposta do kernel
+  e informa seu termino com PC e N finais.
+- KernelSim.c: recebe eventos, controla o Round Robin, mantem filas FIFO
+  e seis buffers simulados e reconhece o termino de cada aplicacao.
+- trabalho.h: tipos compartilhados (mensagem diferenciada por enum).
+- testes/apoio.c e apoio.h: infraestrutura de testes somente em C.
+- testes/TesteProcessos.c: criacao e encerramento dos oito filhos.
+- testes/TesteEscalonamento.c: RR, SIGSTOP/CONT e bloqueio/desbloqueio.
+- testes/TesteFilas.c: FIFO global por tipo de syscall.
+- testes/TesteSyscalls.c: Application realmente aguarda resposta individual.
+- testes/TestePipes.c: transporte correto e isolamento dos seis buffers.
+- testes/TesteTermino.c: termino natural, exclusao de terminados do
+  escalonamento e reconhecimento do fim das seis aplicacoes.
+
+COMPILAR (executar dentro da pasta T1)
+gcc -Wall -Wextra Simulador.c -o Simulador
+gcc -Wall -Wextra KernelSim.c -o KernelSim
+gcc -Wall -Wextra InterController.c -o InterController
+gcc -Wall -Wextra Application.c -o Application
+gcc -Wall -Wextra testes/Testes.c testes/apoio.c testes/TesteProcessos.c testes/TesteEscalonamento.c testes/TesteFilas.c testes/TesteSyscalls.c testes/TestePipes.c testes/TesteTermino.c -o Testes
+./Testes
+
+ITENS AINDA NAO IMPLEMENTADOS (atualizados apos esta etapa)
+- Atualizar PC e N em toda troca de contexto e restaurar contexto na simulacao;
+- Pausa/retomada coordenada com Ctrl+Z e relatorio de todos os estados;
+- Testes dessas novas funcionalidades e relatorio final da entrega.
+
+OBSERVACOES
+- Os processos auxiliares dos testes nao realizam 5000 iteracoes; o novo
+  teste usa TESTE_MAX_ITERACOES=3 e verifica as 3 iteracoes exatamente.
+  Em execucao normal, a aplicacao conta de PC=0 ate PC=5000.
+- Como a pipe de controle tem multiplos escritores, toda mensagem tem
+  o mesmo tamanho e e escrita numa unica chamada write. Isso impede que
+  os bytes de eventos de produtores distintos se misturem.
+- Nao foram acrescentados semaforos porque o KernelSim e o unico processo
+  que altera as filas e os buffers simulados; nao ha acesso concorrente
+  a uma mesma area de memoria entre varios escritores do kernel simulado.
