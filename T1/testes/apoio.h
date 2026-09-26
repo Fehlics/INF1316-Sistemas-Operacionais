@@ -14,6 +14,7 @@ int iniciar_ambiente(AmbienteTeste *a);
 void encerrar_ambiente(AmbienteTeste *a);
 int enviar_pedido_teste(AmbienteTeste *a, int id, Operacao op, int pc, int n);
 int enviar_irq_teste(AmbienteTeste *a, TipoIRQ irq);
+int enviar_termino_teste(AmbienteTeste *a, int id, int pc, int n);
 int ler_resposta_teste(AmbienteTeste *a, int id, Operacao op, int n);
 int esperar_ativo(AmbienteTeste *a, int id);
 int verificar_parada(pid_t pid);
