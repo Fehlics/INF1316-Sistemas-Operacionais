@@ -2,7 +2,7 @@
 
 #include <sys/types.h>
 
-/* Constantes declaradas com enum, sem #define. */
+/* Constantes e tipos compartilhados pelos programas do simulador. */
 enum {
     QUANTIDADE_APLICACOES = 6,
     MAX_ITERACOES = 5000
@@ -16,24 +16,12 @@ typedef enum {
     TERMINADO
 } EstadoProcesso;
 
-typedef enum {
-    NENHUMA_OPERACAO,
-    RECEBER,
-    ENVIAR
-} Operacao;
+typedef enum { NENHUMA_OPERACAO, RECEBER, ENVIAR } Operacao;
+typedef enum { IRQ0, IRQ1, IRQ2 } TipoIRQ;
 
-typedef enum {
-    IRQ0,
-    IRQ1,
-    IRQ2
-} TipoIRQ;
+/* Os dois produtores escrevem na MESMA pipe, informando o tipo. */
+typedef enum { EVENTO_INTERRUPCAO, EVENTO_SYSCALL } TipoEvento;
 
-/* InterController -> KernelSim: interrupcao gerada. */
-typedef struct {
-    TipoIRQ tipo;
-} MensagemIRQ;
-
-/* Application -> KernelSim: parametros salvos no instante da syscall. */
 typedef struct {
     int id_aplicacao;
     Operacao operacao;
@@ -41,14 +29,18 @@ typedef struct {
     int n;
 } PedidoSyscall;
 
-/* KernelSim -> Application: permite concluir a syscall depois do IRQ. */
+typedef struct {
+    TipoEvento tipo;
+    TipoIRQ irq;        /* Utilizado somente se tipo = EVENTO_INTERRUPCAO. */
+    PedidoSyscall pedido; /* Utilizado somente se tipo = EVENTO_SYSCALL. */
+} MensagemControle;
+
 typedef struct {
     int id_aplicacao;
     Operacao operacao;
-    int n; /* Resultado de RECEBER; para ENVIAR, N nao muda. */
+    int n;
 } RespostaSyscall;
 
-/* Contexto que o kernel simulado mantem para cada aplicacao. */
 typedef struct {
     int id;
     pid_t pid;
