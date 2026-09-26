@@ -138,11 +138,38 @@ int main(void) {
     if (!encerrar) {
         puts("[Simulador] Processos iniciados. Ctrl+C para encerrar.");
         /* Ainda falta a pausa coordenada com Ctrl+Z. */
+        int restantes = QUANTIDADE_APLICACOES;
         while (!encerrar) {
             int estado;
-            pid_t terminou = waitpid(kernel, &estado, WNOHANG);
-            if (terminou == kernel || terminou == -1) { kernel = -1; break; }
-            sleep(1);
+            /* Recolhe qualquer filho terminado, evitando processos zumbis. */
+            pid_t terminou = waitpid(-1, &estado, WNOHANG);
+            if (terminou == kernel) {
+                kernel = -1;
+                puts("[Simulador] KernelSim encerrou.");
+                break;
+            }
+            if (terminou == controlador) {
+                controlador = -1;
+                puts("[Simulador] InterController encerrou.");
+            } else if (terminou > 0) {
+                for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
+                    if (terminou == aplicativos[i]) {
+                        aplicativos[i] = 0; /* Ja foi recolhido por waitpid. */
+                        restantes--;
+                        printf("[Simulador] Recolheu A%d (PID=%ld, %s).\n",
+                               i + 1, (long)terminou,
+                               WIFEXITED(estado) && WEXITSTATUS(estado) == 0 ?
+                               "termino normal" : "termino anormal");
+                        if (restantes == 0)
+                            puts("[Simulador] As seis aplicacoes foram recolhidas.");
+                        break;
+                    }
+                }
+            } else if (terminou < 0 && errno != EINTR) {
+                perror("Simulador: waitpid");
+                break;
+            }
+            if (!encerrar) sleep(1);
         }
     }
     finalizar(aplicativos, kernel, controlador);
