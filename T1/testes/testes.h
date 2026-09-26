@@ -5,3 +5,4 @@ int testar_processos(void);
 int testar_filas(void);
 int testar_respostas(void);
 int testar_pipes(void);
+int testar_escalonamento(void);

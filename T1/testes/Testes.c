@@ -4,7 +4,7 @@
 /* Executa todos os testes e informa quantos passaram. */
 int main(void) {
     int aprovados = 0;
-    int total = 4;
+    int total = 5;
     puts("=== TESTES DO SIMULADOR ===");
 
     if (testar_processos()) {
@@ -12,6 +12,13 @@ int main(void) {
         puts("[PASSOU] Criacao e encerramento dos processos");
     } else {
         puts("[FALHOU] Criacao e encerramento dos processos");
+    }
+
+    if (testar_escalonamento()) {
+        aprovados++;
+        puts("[PASSOU] Escalonamento Round Robin");
+    } else {
+        puts("[FALHOU] Escalonamento Round Robin");
     }
 
     if (testar_filas()) {
