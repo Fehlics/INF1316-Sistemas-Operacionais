@@ -3,8 +3,8 @@
 #include <sys/types.h>
 
 /*
- * Estruturas e tipos compartilhados pelos programas.
- * Usamos enum em vez de #define para definir constantes.
+ * Tipos compartilhados entre os quatro programas.
+ * Usamos enum em vez de #define para definir as constantes.
  */
 enum {
     QUANTIDADE_APLICACOES = 6,
@@ -31,23 +31,25 @@ typedef enum {
     IRQ2
 } TipoIRQ;
 
-/* Mensagem enviada pelo InterController ao KernelSim (pipe Unix real). */
+/* InterController -> KernelSim (primeiro pipe real). */
 typedef struct {
     TipoIRQ tipo;
 } MensagemIRQ;
 
 /*
- * Modelo de uma futura solicitação de syscall de uma aplicação.
- * O endereço real de &PC ou &N não deve ser enviado entre processos:
- * cada processo Unix tem seu próprio espaço de endereçamento.
+ * Application -> KernelSim (segundo pipe real).
+ * Os campos pc e n representam os dados da aplicacao no instante do pedido.
+ * Nao enviamos &PC ou &N: ponteiros locais nao sao validos em outro processo.
+ * Mais adiante sera necessario um canal de resposta para entregar o N do RECV.
  */
 typedef struct {
-    int id_aplicacao; /* A1 = 1, ..., A6 = 6 */
+    int id_aplicacao;
     Operacao operacao;
-    int pc;           /* Valor do contador em caso de ENVIAR. */
+    int pc;
+    int n;
 } PedidoSyscall;
 
-/* Informações que o KernelSim deverá manter sobre cada aplicação. */
+/* Informacoes mantidas pelo KernelSim sobre cada aplicacao. */
 typedef struct {
     int id;
     pid_t pid;
