@@ -38,12 +38,14 @@ static void finalizar(pid_t aplicativos[], pid_t kernel, pid_t controlador) {
 int main(void) {
     int canal_irq[2];
     int canal_syscall[2]; /* Application -> KernelSim. */
+    int canal_resposta[QUANTIDADE_APLICACOES][2]; /* KernelSim -> cada A. */
     pid_t aplicativos[QUANTIDADE_APLICACOES] = {0};
     pid_t kernel = -1;
     pid_t controlador = -1;
     char texto_pids[QUANTIDADE_APLICACOES][32];
     char texto_fd[32];
     char texto_fd_syscall[32];
+    char texto_respostas[QUANTIDADE_APLICACOES][32];
 
     struct sigaction acao = {0};
     acao.sa_handler = ao_interromper;
@@ -70,6 +72,22 @@ int main(void) {
     }
     snprintf(texto_fd_syscall, sizeof texto_fd_syscall, "%d", canal_syscall[1]);
 
+    /* Cada aplicacao recebe sua propria resposta, sem confusao entre leitores. */
+    for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
+        if (pipe(canal_resposta[i]) == -1) {
+            perror("pipe resposta");
+            for (int j = 0; j < i; j++) {
+                close(canal_resposta[j][0]);
+                close(canal_resposta[j][1]);
+            }
+            close(canal_irq[0]); close(canal_irq[1]);
+            close(canal_syscall[0]); close(canal_syscall[1]);
+            return 1;
+        }
+        snprintf(texto_respostas[i], sizeof texto_respostas[i], "%d",
+                 canal_resposta[i][1]);
+    }
+
     /* Cria os seis processos de aplicação, inicialmente PARADOS. */
     for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
         if (encerrar) break;
@@ -86,10 +104,16 @@ int main(void) {
             close(canal_irq[0]);
             close(canal_irq[1]);
             close(canal_syscall[0]); /* A aplicacao so escreve pedidos. */
+            for (int j = 0; j < QUANTIDADE_APLICACOES; j++) {
+                close(canal_resposta[j][1]); /* Aplicacoes nao escrevem respostas. */
+                if (j != i) close(canal_resposta[j][0]);
+            }
+            char fd_resposta[32];
+            snprintf(fd_resposta, sizeof fd_resposta, "%d", canal_resposta[i][0]);
             snprintf(id, sizeof id, "%d", i + 1);
             raise(SIGSTOP); /* O KernelSim dará o primeiro SIGCONT. */
             execl("./Application", "Application", id,
-                  texto_fd_syscall, (char *)NULL);
+                  texto_fd_syscall, fd_resposta, (char *)NULL);
             perror("exec Application");
             _exit(1);
         }
@@ -112,10 +136,15 @@ int main(void) {
             signal(SIGINT, SIG_DFL);
             close(canal_irq[1]);
             close(canal_syscall[1]); /* O kernel so le pedidos. */
+            for (int j = 0; j < QUANTIDADE_APLICACOES; j++) {
+                close(canal_resposta[j][0]); /* O kernel so escreve respostas. */
+            }
             snprintf(texto_fd, sizeof texto_fd, "%d", canal_irq[0]);
             char fd_syscall[32];
             snprintf(fd_syscall, sizeof fd_syscall, "%d", canal_syscall[0]);
             execl("./KernelSim", "KernelSim", texto_fd, fd_syscall,
+                  texto_respostas[0], texto_respostas[1], texto_respostas[2],
+                  texto_respostas[3], texto_respostas[4], texto_respostas[5],
                   texto_pids[0], texto_pids[1], texto_pids[2],
                   texto_pids[3], texto_pids[4], texto_pids[5],
                   (char *)NULL);
@@ -134,6 +163,10 @@ int main(void) {
             close(canal_irq[0]);
             close(canal_syscall[0]); /* O controlador nao usa syscalls. */
             close(canal_syscall[1]);
+            for (int j = 0; j < QUANTIDADE_APLICACOES; j++) {
+                close(canal_resposta[j][0]);
+                close(canal_resposta[j][1]);
+            }
             snprintf(texto_fd, sizeof texto_fd, "%d", canal_irq[1]);
             execl("./InterController", "InterController", texto_fd,
                   (char *)NULL);
@@ -146,6 +179,10 @@ int main(void) {
     close(canal_irq[1]);
     close(canal_syscall[0]);
     close(canal_syscall[1]);
+    for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
+        close(canal_resposta[i][0]);
+        close(canal_resposta[i][1]);
+    }
 
     if (!encerrar) {
         printf("[Simulador] Processos iniciados. Ctrl+C para encerrar.\n");
