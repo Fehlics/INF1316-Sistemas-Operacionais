@@ -70,7 +70,7 @@ static int testar_aviso_da_aplicacao(void) {
         int status;
         /* A aplicacao so pode encerrar depois que o kernel confirmar. */
         if (waitpid(filho, &status, WNOHANG) == 0) {
-            RespostaSyscall confirmacao = {3, NENHUMA_OPERACAO, 0};
+            RespostaSyscall confirmacao = {3, NENHUMA_OPERACAO, 0, 3};
             if (write(resposta[1], &confirmacao, sizeof confirmacao) ==
                 (ssize_t)sizeof confirmacao) {
                 for (int i = 0; i < 100; i++) {
