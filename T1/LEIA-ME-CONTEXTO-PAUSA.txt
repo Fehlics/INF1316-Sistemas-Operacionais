@@ -31,6 +31,26 @@ MODULOS ALTERADOS
   Robin e Ctrl+Z real no Simulador.
 - testes/Testes.c e testes.h: incluem o setimo teste.
 
+REVISAO DA TROCA DE CONTEXTO
+- Conforme as aulas sobre PCB e troca de contexto, ha duas camadas:
+  (1) Contexto REAL: Linux preserva a pilha, os registradores e as
+      variaveis de cada processo quando SIGSTOP o interrompe; SIGCONT
+      retoma exatamente de onde parou. Nao tentamos manipular registradores
+      nem reproduzir um escalonador completo de hardware em C.
+  (2) Contexto SIMULADO: KernelSim mantem no PCB o ultimo PC, N, operacao
+      e endereco LOGICO do parametro da syscall. SEND usa ENDERECO_PC e
+      RECV usa ENDERECO_N. Ponteiros reais nao sao enviados a outro
+      processo Unix, que nao poderia acessar diretamente esses enderecos.
+- Quando IRQ1/IRQ2 conclui uma syscall, KernelSim devolve explicitamente
+  PC e N do PCB na RespostaSyscall. Application restaura ambos antes de
+  seguir. A operacao/endereco pendentes sao limpos no PCB apos a resposta.
+- A fotografia de Ctrl+Z agora mostra tambem ENDERECO=PC ou ENDERECO=N
+  para os processos que estiverem bloqueados em syscall.
+- testes/TesteContexto.c: executa uma Application real, interrompe-a duas
+  vezes com SIGSTOP/SIGCONT, conclui uma RECV com N=77 e valida o PC/N
+  das iteracoes seguintes. Tambem verifica os parametros de SEND em um
+  PCB e sua limpeza apos IRQ2. Este e o oitavo teste.
+
 COMO FUNCIONA
 As seis aplicacoes executam como processos Unix comuns. O sistema
 operacional preserva suas variaveis locais quando o KernelSim lhes envia
@@ -57,7 +77,7 @@ gcc -Wall -Wextra Application.c -o Application
 gcc -Wall -Wextra testes/Testes.c testes/apoio.c \
     testes/TesteProcessos.c testes/TesteEscalonamento.c \
     testes/TesteFilas.c testes/TesteSyscalls.c testes/TesteTermino.c \
-    testes/TestePipes.c testes/TestePausa.c -o Testes
+    testes/TestePipes.c testes/TestePausa.c testes/TesteContexto.c -o Testes
 ./Testes
 
 OBSERVACOES IMPORTANTES
