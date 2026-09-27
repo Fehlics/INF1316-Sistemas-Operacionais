@@ -13,11 +13,14 @@ static int confirmar_depois[TOTAL];
 static int passos[TOTAL], erros[TOTAL];
 
 static void escalonar(void) {
-    if (pausado) return;
+    if (pausado)
+        return;
+
     if (atual >= 0 && p[atual].estado == EXECUTANDO) {
         kill(p[atual].pid, SIGSTOP);
         p[atual].estado = PRONTO;
     }
+
     atual = -1;
     for (int passo = 1; passo <= TOTAL; passo++) {
         int i = (ultimo + passo) % TOTAL;
@@ -33,37 +36,57 @@ static void escalonar(void) {
 
 static void foto(int fase) {
     Fotografia f = { .fase = fase, .atual = atual };
-    for (int i = 0; i < TOTAL; i++) f.processos[i] = p[i];
+    for (int i = 0; i < TOTAL; i++)
+        f.processos[i] = p[i];
+
     write(estado_fd, &f, sizeof f);
 }
 
 static void pedido(Mensagem m) {
-    int i = m.id - 1, tipo = m.op - 1;
-    if (i < 0 || i >= TOTAL || tipo < 0 || tipo > 1 ||
-        m.endereco != (m.op == ENVIAR ? END_PC : END_N) ||
+    int i = m.id - 1;
+    if (i < 0 || i >= TOTAL ||
+        (m.op != RECEBER && m.op != ENVIAR))
+        return;
+
+    int tipo = m.op == RECEBER ? 0 : 1;
+    if (m.endereco != (m.op == ENVIAR ? END_PC : END_N) ||
         (p[i].estado != PRONTO && p[i].estado != EXECUTANDO) ||
-        quantidade[tipo] == TOTAL) return;
-    fila[tipo][(inicio[tipo] + quantidade[tipo]++) % TOTAL] = i;
+        quantidade[tipo] == TOTAL)
+        return;
+
+    int fim = (inicio[tipo] + quantidade[tipo]) % TOTAL;
+    fila[tipo][fim] = i;
+    quantidade[tipo]++;
     p[i].pc = m.pc;
     p[i].n = m.n;
     p[i].op = m.op;
     p[i].endereco = m.endereco;
     p[i].estado = BLOQUEADO;
     kill(p[i].pid, SIGSTOP);
-    if (atual == i) { atual = -1; escalonar(); }
+
+    if (atual == i) {
+        atual = -1;
+        escalonar();
+    }
 }
 
 static void concluir(int op) {
-    int tipo = op - 1;
-    if (!quantidade[tipo]) return;
+    int tipo = op == RECEBER ? 0 : 1;
+    if (!quantidade[tipo])
+        return;
+
     int i = fila[tipo][inicio[tipo]];
     if (op == ENVIAR) {
-        if (tamanho[i] == MAX) return;
-        buffer[i][(pos[i] + tamanho[i]++) % MAX] = p[i].pc;
+        if (tamanho[i] == MAX)
+            return;
+
+        int fim = (pos[i] + tamanho[i]) % MAX;
+        buffer[i][fim] = p[i].pc;
+        tamanho[i]++;
         p[i].escritas++;
         printf("SEND A%d PC=%d\n", i + 1, p[i].pc);
     } else {
-        int parceiro = i ^ 1;
+        int parceiro = i % 2 == 0 ? i + 1 : i - 1;
         p[i].n = tamanho[parceiro] ? buffer[parceiro][pos[parceiro]] : 0;
         if (tamanho[parceiro]) {
             pos[parceiro] = (pos[parceiro] + 1) % MAX;
@@ -72,6 +95,7 @@ static void concluir(int op) {
         p[i].leituras++;
         printf("RECV A%d N=%d\n", i + 1, p[i].n);
     }
+
     inicio[tipo] = (inicio[tipo] + 1) % TOTAL;
     quantidade[tipo]--;
     Resposta r = { .op = op, .pc = p[i].pc, .n = p[i].n };
@@ -79,13 +103,17 @@ static void concluir(int op) {
     p[i].op = NENHUMA;
     p[i].endereco = SEM_ENDERECO;
     p[i].estado = PRONTO;
-    if (atual < 0) escalonar();
+
+    if (atual < 0)
+        escalonar();
 }
 
 static void terminar(Mensagem m) {
     int i = m.id - 1;
     if (i < 0 || i >= TOTAL || p[i].estado == TERMINADO ||
-        p[i].estado == BLOQUEADO) return;
+        p[i].estado == BLOQUEADO)
+        return;
+
     int era_atual = atual == i;
     int era_pronto = p[i].estado == PRONTO;
     p[i].pc = m.pc;
@@ -96,18 +124,30 @@ static void terminar(Mensagem m) {
     terminados++;
     printf("TERMINOU A%d PC=%d N=%d L=%d E=%d\n", i + 1,
            m.pc, m.n, p[i].leituras, p[i].escritas);
+
     if (getenv("TESTE_AUDIT"))
         printf("AUDIT A%d CONT=%d ERROS=%d\n", i + 1, passos[i], erros[i]);
+
     Resposta r = { .op = NENHUMA, .pc = m.pc, .n = m.n };
     write(respostas[i], &r, sizeof r);
-    if (pausado) confirmar_depois[i] = 1;
-    else if (era_pronto) kill(p[i].pid, SIGCONT);
-    if (era_atual) { atual = -1; escalonar(); }
-    if (terminados == TOTAL) puts("TODOS TERMINARAM");
+    if (pausado)
+        confirmar_depois[i] = 1;
+    else if (era_pronto)
+        kill(p[i].pid, SIGCONT);
+
+    if (era_atual) {
+        atual = -1;
+        escalonar();
+    }
+
+    if (terminados == TOTAL)
+        puts("TODOS TERMINARAM");
 }
 
 int main(int argc, char **argv) {
-    if (argc != 15) return 1;
+    if (argc != 15)
+        return 1;
+
     setbuf(stdout, NULL);
     signal(SIGPIPE, SIG_IGN);
     int controle = atoi(argv[1]);
@@ -116,30 +156,41 @@ int main(int argc, char **argv) {
         p[i].pid = (pid_t)atol(argv[8 + i]);
         p[i].estado = PRONTO;
     }
+
     estado_fd = atoi(argv[14]);
     escalonar();
     Mensagem m;
     while (read(controle, &m, sizeof m) == sizeof m) {
         if (m.tipo == IRQ && !pausado) {
-            if (m.op == 0) escalonar();
-            else if (m.op == 1 || m.op == 2) concluir(m.op);
-        } else if (m.tipo == PEDIDO) pedido(m);
-        else if (m.tipo == CONTEXTO && m.id >= 1 && m.id <= TOTAL) {
+            if (m.op == NENHUMA)
+                escalonar();
+            else if (m.op == RECEBER || m.op == ENVIAR)
+                concluir(m.op);
+        } else if (m.tipo == PEDIDO) {
+            pedido(m);
+        } else if (m.tipo == CONTEXTO && m.id >= 1 && m.id <= TOTAL) {
             int i = m.id - 1;
-            if (p[i].estado == TERMINADO) continue;
+            if (p[i].estado == TERMINADO)
+                continue;
+
             if (getenv("TESTE_AUDIT")) {
-                if (m.pc == passos[i] + 1) passos[i]++;
-                else if (m.pc != passos[i]) erros[i]++;
+                if (m.pc == passos[i] + 1)
+                    passos[i]++;
+                else if (m.pc != passos[i])
+                    erros[i]++;
             }
             p[i].pc = m.pc;
             p[i].n = m.n;
-        } else if (m.tipo == FIM) terminar(m);
-        else if (m.tipo == PAUSAR && !pausado) {
+        } else if (m.tipo == FIM) {
+            terminar(m);
+        } else if (m.tipo == PAUSAR && !pausado) {
             pausado = 1;
-            if (atual >= 0) kill(p[atual].pid, SIGSTOP);
+            if (atual >= 0)
+                kill(p[atual].pid, SIGSTOP);
             foto(1);
-        } else if (m.tipo == MOSTRAR && pausado) foto(2);
-        else if (m.tipo == RETOMAR && pausado) {
+        } else if (m.tipo == MOSTRAR && pausado) {
+            foto(2);
+        } else if (m.tipo == RETOMAR && pausado) {
             pausado = 0;
             for (int i = 0; i < TOTAL; i++) {
                 if (confirmar_depois[i]) {
@@ -149,12 +200,15 @@ int main(int argc, char **argv) {
             }
             if (atual >= 0 && p[atual].estado == EXECUTANDO)
                 kill(p[atual].pid, SIGCONT);
-            else escalonar();
+            else
+                escalonar();
             foto(3);
         }
     }
+
     close(controle);
     close(estado_fd);
-    for (int i = 0; i < TOTAL; i++) close(respostas[i]);
+    for (int i = 0; i < TOTAL; i++)
+        close(respostas[i]);
     return 0;
 }
