@@ -85,6 +85,7 @@ static int testar_kernel_pausado(void) {
         !receber_fotografia(&a, &e, 2)) goto fim;
     if (e.processos[2].estado != BLOQUEADO_LEITURA ||
         e.processos[2].operacao_pendente != RECEBER ||
+        e.processos[2].endereco_pendente != ENDERECO_N ||
         e.processos[2].pc != 23 || e.processos[2].n != 17 ||
         e.processos[3].estado != EXECUTANDO) goto fim;
     puts("[OK] Fotografia registrou processo bloqueado e parametros da syscall.");
