@@ -1,80 +1,25 @@
 #include "trabalho.h"
+#include "kernel_filas.h"
+#include "util.h"
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
-/* Filas circulares dos bloqueados, utilizando somente vetores. */
-typedef struct {
-    int indices[QUANTIDADE_APLICACOES];
-    int inicio;
-    int quantidade;
-} FilaBloqueados;
-
-typedef struct {
-    int dados[MAX_ITERACOES];
-    int inicio;
-    int quantidade;
-} BufferPipe;
-
 static Processo processos[QUANTIDADE_APLICACOES];
 static FilaBloqueados fila_leitura, fila_escrita;
-/* Buffer i contem o que Ai+1 enviou ao parceiro. */
-static BufferPipe buffers[QUANTIDADE_APLICACOES];
 static int respostas[QUANTIDADE_APLICACOES];
 static int atual = -1, ultimo_escalonado = -1;
-static int quantidade_terminados = 0;
-static int pausado = 0;
+static int quantidade_terminados, pausado, ultima_ativa_na_pausa;
 static int fd_status = -1;
-static int ultima_ativa_na_pausa = 0;
 static int confirmar_termino_depois[QUANTIDADE_APLICACOES];
-/* Auditoria optativa, apenas para garantir que as 5000 iteracoes
- * realmente informaram PC=1, 2, ... 5000, sem saltos. */
 static int passos_conferidos[QUANTIDADE_APLICACOES];
 static int contextos_repetidos[QUANTIDADE_APLICACOES];
 static int contextos_invalidos[QUANTIDADE_APLICACOES];
 
-static int parceiro(int indice) {
-    return indice % 2 == 0 ? indice + 1 : indice - 1;
-}
-
-static int guardar(int remetente, int pc) {
-    BufferPipe *b = &buffers[remetente];
-    if (b->quantidade == MAX_ITERACOES) return 0;
-    b->dados[(b->inicio + b->quantidade) % MAX_ITERACOES] = pc;
-    b->quantidade++;
-    return 1;
-}
-
-static int retirar(int destinatario) {
-    BufferPipe *b = &buffers[parceiro(destinatario)];
-    if (b->quantidade == 0) return 0;
-    int valor = b->dados[b->inicio];
-    b->inicio = (b->inicio + 1) % MAX_ITERACOES;
-    b->quantidade--;
-    return valor;
-}
-
-static int enfileirar(FilaBloqueados *f, int indice) {
-    if (f->quantidade == QUANTIDADE_APLICACOES) return 0;
-    f->indices[(f->inicio + f->quantidade) % QUANTIDADE_APLICACOES] = indice;
-    f->quantidade++;
-    return 1;
-}
-
-static int desenfileirar(FilaBloqueados *f) {
-    int indice = f->indices[f->inicio];
-    f->inicio = (f->inicio + 1) % QUANTIDADE_APLICACOES;
-    f->quantidade--;
-    return indice;
-}
-
 static void escalonar(void) {
     if (pausado) return;
-    /* O Linux salva/restaura os registradores e variaveis das aplicacoes
-     * quando recebe SIGSTOP/SIGCONT. O PCB abaixo e o CONTEXTO SIMULADO,
-     * atualizado por EVENTO_CONTEXTO e pelas mensagens das syscalls. */
     if (atual != -1 && processos[atual].estado == EXECUTANDO) {
         kill(processos[atual].pid, SIGSTOP);
         processos[atual].estado = PRONTO;
@@ -91,19 +36,15 @@ static void escalonar(void) {
             return;
         }
     }
-    /* Evita repetir a mesma mensagem a cada IRQ0 depois do ultimo fim. */
     if (quantidade_terminados < QUANTIDADE_APLICACOES)
         puts("[Kernel] Nenhuma aplicacao pronta.");
 }
 
-/* Cada aplicacao informa seu PC/N no inicio da iteracao e depois de
- * uma syscall. Assim o PCB nao depende de a aplicacao gerar SEND/RECV. */
 static void atualizar_contexto(PedidoSyscall valor) {
     if (valor.id_aplicacao < 1 || valor.id_aplicacao > QUANTIDADE_APLICACOES)
         return;
     Processo *p = &processos[valor.id_aplicacao - 1];
     if (p->estado == TERMINADO) return;
-    /* Os eventos de um mesmo remetente chegam na mesma ordem da pipe. */
     if (getenv("TESTE_VALIDAR_PC") != NULL) {
         int i = valor.id_aplicacao - 1;
         if (valor.pc == passos_conferidos[i] + 1)
@@ -125,10 +66,7 @@ static void enviar_estado(int fase) {
     fotografia.executando = ultima_ativa_na_pausa;
     for (int i = 0; i < QUANTIDADE_APLICACOES; i++)
         fotografia.processos[i] = processos[i];
-    ssize_t escritos;
-    do { escritos = write(fd_status, &fotografia, sizeof fotografia); }
-    while (escritos < 0 && errno == EINTR);
-    if (escritos != (ssize_t)sizeof fotografia)
+    if (!enviar_dados(fd_status, &fotografia, sizeof fotografia))
         perror("Kernel: estado para Simulador");
 }
 
@@ -206,14 +144,8 @@ static void concluir(FilaBloqueados *f, Operacao op) {
                p->id, p->n, parceiro(indice) + 1);
     }
     desenfileirar(f);
-    /* Retorna PC e N explicitamente: Application restaura as variaveis
-     * simuladas quando a syscall termina. */
     RespostaSyscall resposta = {p->id, op, p->n, p->pc};
-    ssize_t escritos;
-    do {
-        escritos = write(respostas[indice], &resposta, sizeof resposta);
-    } while (escritos < 0 && errno == EINTR);
-    if (escritos != (ssize_t)sizeof resposta) {
+    if (!enviar_dados(respostas[indice], &resposta, sizeof resposta)) {
         perror("Kernel: resposta");
         return;
     }
@@ -265,14 +197,10 @@ static void tratar_termino(PedidoSyscall aviso) {
 
     /* Confirma o recebimento, antes de o processo Unix efetuar exit. */
     RespostaSyscall resposta = {p->id, NENHUMA_OPERACAO, p->n, p->pc};
-    ssize_t escritos;
-    do { escritos = write(respostas[indice], &resposta, sizeof resposta); }
-    while (escritos < 0 && errno == EINTR);
-    if (escritos != (ssize_t)sizeof resposta)
+    if (!enviar_dados(respostas[indice], &resposta, sizeof resposta))
         perror("Kernel: confirmacao de termino");
 
-    /* Um processo preemptado apos escrever o aviso ainda pode estar parado.
-       Retoma-o somente para receber a confirmacao e encerrar. */
+    /* Um processo preemptado pode estar parado apos enviar o aviso. */
     if (pausado) confirmar_termino_depois[indice] = 1;
     else if (estava_parado) kill(p->pid, SIGCONT);
     if (estava_executando) {
@@ -284,8 +212,6 @@ static void tratar_termino(PedidoSyscall aviso) {
 }
 
 static void tratar_interrupcao(TipoIRQ irq) {
-    /* O controlador estara suspenso durante a pausa. Caso uma mensagem
-       seja injetada por teste, ela nao modifica o estado congelado. */
     if (pausado) return;
     switch (irq) {
         case IRQ0: escalonar(); break;
@@ -293,22 +219,6 @@ static void tratar_interrupcao(TipoIRQ irq) {
         case IRQ2: concluir(&fila_escrita, ENVIAR); break;
         default: break;
     }
-}
-
-/* read normal na UNICA pipe compartilhada; sem poll/select/threads. */
-static int ler_evento(int fd, MensagemControle *mensagem) {
-    size_t total = 0;
-    while (total < sizeof *mensagem) {
-        ssize_t n = read(fd, (char *)mensagem + total, sizeof *mensagem - total);
-        if (n == 0) return 0;
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            perror("Kernel: read");
-            return 0;
-        }
-        total += (size_t)n;
-    }
-    return 1;
 }
 
 int main(int argc, char *argv[]) {
@@ -329,7 +239,7 @@ int main(int argc, char *argv[]) {
     }
     escalonar();
     MensagemControle mensagem;
-    while (ler_evento(controle, &mensagem)) {
+    while (receber_dados(controle, &mensagem, sizeof mensagem)) {
         if (mensagem.tipo == EVENTO_INTERRUPCAO)
             tratar_interrupcao(mensagem.irq);
         else if (mensagem.tipo == EVENTO_SYSCALL)

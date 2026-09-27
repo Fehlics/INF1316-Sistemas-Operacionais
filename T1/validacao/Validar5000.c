@@ -1,6 +1,4 @@
 #include "../trabalho.h"
-
-#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,151 +6,106 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-/* Teste prolongado separado de Testes.c: cada caso executa as seis
- * Applications REAIS ate MAX_ITERACOES, com um atraso reduzido APENAS
- * para teste. Nenhum processo recebe uma quantidade menor de iteracoes. */
 typedef struct {
     const char *nome;
-    int com_syscalls;
-    int com_pausa;
+    int syscalls, pausa;
 } Cenario;
 
 typedef struct {
-    int aplicacao[QUANTIDADE_APLICACOES];
-    int confirmacao[QUANTIDADE_APLICACOES];
-    int kernel[QUANTIDADE_APLICACOES];
-    int recolhido[QUANTIDADE_APLICACOES];
-    int auditoria[QUANTIDADE_APLICACOES];
-    int enviados;
-    int recebidos;
-    int escalonamentos;
-    int snapshots[QUANTIDADE_APLICACOES];
-    int pausas;
-    int retomadas;
-    int kernel_final;
-    int simulador_final;
-    int erros;
+    int finalizou[QUANTIDADE_APLICACOES];
+    int auditou[QUANTIDADE_APLICACOES];
+    int terminou[QUANTIDADE_APLICACOES];
+    int confirmou[QUANTIDADE_APLICACOES];
+    int recolheu[QUANTIDADE_APLICACOES];
+    int estado[QUANTIDADE_APLICACOES];
     int repetidos[QUANTIDADE_APLICACOES];
-    int leituras[QUANTIDADE_APLICACOES];
-    int escritas[QUANTIDADE_APLICACOES];
-} Resultado;
+    int escrita_a1, leitura_a2, envio, recebimento;
+    int escalonamentos, pausa, retomada, kernel_final, sim_final;
+} Contagem;
 
-/* Usa um arquivo temporario comum, herdado pelos processos filhos.
- * O pai le o registro apenas depois que o Simulador foi encerrado. */
-static int analisar_registro(FILE *registro, const Cenario *cenario) {
-    Resultado r = {0};
-    char linha[1024];
-    rewind(registro);
-    while (fgets(linha, sizeof linha, registro)) {
-        int id, pc, n, leituras, escritas, passos, repetidos, erros;
-        long pid;
-        char situacao[20];
-
+static int analisar(FILE *arquivo, Cenario c) {
+    Contagem t = {0};
+    char linha[512], resultado[20];
+    int id, pc, n, leituras, escritas, passos, repetidos, erros;
+    long pid;
+    int invalido = 0;
+    rewind(arquivo);
+    while (fgets(linha, sizeof linha, arquivo)) {
         if (sscanf(linha, "[A%d] Finalizada (PC=%d, N=%d).", &id, &pc, &n) == 3) {
-            if (id >= 1 && id <= QUANTIDADE_APLICACOES && pc == MAX_ITERACOES)
-                r.aplicacao[id - 1]++;
-            else r.erros++;
+            if (id >= 1 && id <= 6 && pc == MAX_ITERACOES)
+                t.finalizou[id - 1]++;
+            else invalido++;
+        } else if (sscanf(linha, "[Validacao5000] A%d %19s passos=%d repetidos=%d erros=%d PC=%d",
+                          &id, resultado, &passos, &repetidos, &erros, &pc) == 6) {
+            if (id >= 1 && id <= 6 && !strcmp(resultado, "PASSOU") &&
+                passos == MAX_ITERACOES && pc == MAX_ITERACOES && !erros) {
+                t.auditou[id - 1]++;
+                t.repetidos[id - 1] = repetidos;
+            } else invalido++;
         } else if (sscanf(linha,
                    "[Kernel] A%d TERMINADO (PC=%d, N=%d, leituras=%d, escritas=%d).",
                    &id, &pc, &n, &leituras, &escritas) == 5) {
-            if (id >= 1 && id <= QUANTIDADE_APLICACOES && pc == MAX_ITERACOES) {
-                r.kernel[id - 1]++;
-                r.leituras[id - 1] = leituras;
-                r.escritas[id - 1] = escritas;
-            } else r.erros++;
-        } else if (sscanf(linha,
-                   "[Validacao5000] A%d %19s passos=%d repetidos=%d erros=%d PC=%d",
-                   &id, situacao, &passos, &repetidos, &erros, &pc) == 6) {
-            if (id >= 1 && id <= QUANTIDADE_APLICACOES &&
-                strcmp(situacao, "PASSOU") == 0 &&
-                passos == MAX_ITERACOES && erros == 0 && pc == MAX_ITERACOES) {
-                r.auditoria[id - 1]++;
-                r.repetidos[id - 1] = repetidos;
-            } else r.erros++;
-        } else if (strstr(linha, "termino normal") &&
-                   sscanf(linha, "[Simulador] Recolheu A%d (PID=%ld,",
-                          &id, &pid) == 2) {
-            if (id >= 1 && id <= QUANTIDADE_APLICACOES && pid > 0)
-                r.recolhido[id - 1]++;
-            else r.erros++;
+            if (id >= 1 && id <= 6 && pc == MAX_ITERACOES) {
+                t.terminou[id - 1]++;
+                if (id == 1) t.escrita_a1 = escritas;
+                if (id == 2) t.leitura_a2 = leituras;
+            } else invalido++;
+        } else if (sscanf(linha, "[Simulador] Recolheu A%d (PID=%ld,", &id, &pid) == 2 &&
+                   strstr(linha, "termino normal")) {
+            if (id >= 1 && id <= 6 && pid > 0) t.recolheu[id - 1]++;
+            else invalido++;
         } else if (strstr(linha, "Termino confirmado pelo KernelSim.") &&
                    sscanf(linha, "[A%d]", &id) == 1) {
-            if (id >= 1 && id <= QUANTIDADE_APLICACOES)
-                r.confirmacao[id - 1]++;
-            else r.erros++;
-        } else if (sscanf(linha, "[Estado] A%d ", &id) == 1) {
-            if (id >= 1 && id <= QUANTIDADE_APLICACOES)
-                r.snapshots[id - 1]++;
-        }
+            if (id >= 1 && id <= 6) t.confirmou[id - 1]++;
+            else invalido++;
+        } else if (sscanf(linha, "[Estado] A%d ", &id) == 1 && id >= 1 && id <= 6)
+            t.estado[id - 1]++;
 
-        if (strstr(linha, "[Kernel] Executando A")) r.escalonamentos++;
-        if (strstr(linha, "[Kernel] A1 enviou PC=2 para A2.")) r.enviados++;
-        if (strstr(linha, "[Kernel] A2 recebeu N=")) r.recebidos++;
-        if (strstr(linha, "ESTADO DOS PROCESSOS (PAUSADO)")) r.pausas++;
-        if (strstr(linha, "[Simulador] Execucao retomada.")) r.retomadas++;
-        if (strstr(linha, "[Kernel] Todas as seis aplicacoes terminaram."))
-            r.kernel_final++;
-        if (strstr(linha, "[Simulador] As seis aplicacoes foram recolhidas."))
-            r.simulador_final++;
+        if (strstr(linha, "[Kernel] Executando A")) t.escalonamentos++;
+        if (strstr(linha, "[Kernel] A1 enviou PC=2 para A2.")) t.envio++;
+        if (strstr(linha, "[Kernel] A2 recebeu N=")) t.recebimento++;
+        if (strstr(linha, "ESTADO DOS PROCESSOS (PAUSADO)")) t.pausa++;
+        if (strstr(linha, "[Simulador] Execucao retomada.")) t.retomada++;
+        if (strstr(linha, "[Kernel] Todas as seis aplicacoes terminaram.")) t.kernel_final++;
+        if (strstr(linha, "[Simulador] As seis aplicacoes foram recolhidas.")) t.sim_final++;
     }
-
-    int ok = r.erros == 0 && r.escalonamentos > QUANTIDADE_APLICACOES &&
-             r.kernel_final == 1 && r.simulador_final == 1;
+    int ok = !invalido && t.kernel_final == 1 && t.sim_final == 1 &&
+             t.escalonamentos > QUANTIDADE_APLICACOES;
     for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
-        int repeticoes_esperadas = cenario->com_syscalls && i < 2 ? 1 : 0;
-        int valido = r.aplicacao[i] == 1 && r.kernel[i] == 1 &&
-                     r.recolhido[i] == 1 && r.confirmacao[i] == 1 &&
-                     r.auditoria[i] == 1 &&
-                     r.repetidos[i] == repeticoes_esperadas;
-        if (!valido) {
-            fprintf(stderr, "[ERRO] A%d: app=%d kernel=%d recolhido=%d "
-                            "confirmado=%d auditoria=%d repetidos=%d\n",
-                    i + 1, r.aplicacao[i], r.kernel[i], r.recolhido[i],
-                    r.confirmacao[i], r.auditoria[i], r.repetidos[i]);
-            ok = 0;
-        }
-        if (cenario->com_pausa && r.snapshots[i] != 1) {
-            fprintf(stderr, "[ERRO] A%d: snapshot ausente/duplicado.\n", i + 1);
+        int esperado = c.syscalls && i < 2 ? 1 : 0;
+        if (t.finalizou[i] != 1 || t.auditou[i] != 1 || t.terminou[i] != 1 ||
+            t.confirmou[i] != 1 || t.recolheu[i] != 1 ||
+            t.repetidos[i] != esperado || (c.pausa && t.estado[i] != 1)) {
+            printf("[ERRO] A%d: fim=%d audit=%d kernel=%d conf=%d recol=%d rep=%d estado=%d\n",
+                   i + 1, t.finalizou[i], t.auditou[i], t.terminou[i],
+                   t.confirmou[i], t.recolheu[i], t.repetidos[i], t.estado[i]);
             ok = 0;
         }
     }
-    if (cenario->com_syscalls &&
-        (r.enviados < 1 || r.recebidos < 1 ||
-         r.escritas[0] < 1 || r.leituras[1] < 1)) {
-        puts("[ERRO] SEND A1 / RECV A2 nao foram concluidos.");
-        ok = 0;
-    }
-    if (cenario->com_pausa && (r.pausas != 1 || r.retomadas != 1)) {
-        puts("[ERRO] Pausa/retomada nao foram confirmadas.");
-        ok = 0;
-    }
-    if (!ok) {
-        printf("[DIAGNOSTICO] %s: escalonamentos=%d, pausas=%d, "
-               "retomadas=%d, erros=%d\n", cenario->nome,
-               r.escalonamentos, r.pausas, r.retomadas, r.erros);
-    } else {
-        printf("[OK] %s: 6 x %d = %d iteracoes, %d escalonamentos.",
-               cenario->nome, MAX_ITERACOES,
-               QUANTIDADE_APLICACOES * MAX_ITERACOES, r.escalonamentos);
-        if (cenario->com_syscalls) printf(" SEND/RECV concluidos.");
-        if (cenario->com_pausa) printf(" Ctrl+Z pausou e retomou.");
+    if (c.syscalls && (!t.envio || !t.recebimento ||
+                       !t.escrita_a1 || !t.leitura_a2)) ok = 0;
+    if (c.pausa && (t.pausa != 1 || t.retomada != 1)) ok = 0;
+    if (ok) {
+        printf("[OK] %s: 6 x 5000 = 30000 iteracoes, %d escalonamentos.",
+               c.nome, t.escalonamentos);
+        if (c.syscalls) printf(" SEND/RECV concluidos.");
+        if (c.pausa) printf(" Ctrl+Z pausou e retomou.");
         putchar('\n');
-    }
+    } else printf("[ERRO] %s: auditoria incompleta (%d erros).\n", c.nome, invalido);
     return ok;
 }
 
-static int executar_cenario(const Cenario *cenario) {
+static int executar(Cenario c) {
     FILE *registro = tmpfile();
-    if (!registro) { perror("tmpfile"); return 0; }
-    printf("[Validacao5000] Iniciando: %s...\n", cenario->nome);
+    if (!registro) return 0;
+    printf("[Validacao5000] Iniciando: %s...\n", c.nome);
     fflush(stdout);
-    pid_t simulador = fork();
-    if (simulador < 0) { perror("fork"); fclose(registro); return 0; }
-    if (simulador == 0) {
-        if (dup2(fileno(registro), STDOUT_FILENO) == -1 ||
-            dup2(fileno(registro), STDERR_FILENO) == -1) _exit(127);
+    pid_t pid = fork();
+    if (pid < 0) { fclose(registro); return 0; }
+    if (pid == 0) {
+        if (dup2(fileno(registro), STDOUT_FILENO) < 0 ||
+            dup2(fileno(registro), STDERR_FILENO) < 0) _exit(127);
         fclose(registro);
-        /* O tamanho da simulacao NAO e reduzido. Somente as esperas. */
         unsetenv("TESTE_MAX_ITERACOES");
         unsetenv("TESTE_SYSCALL");
         unsetenv("TESTE_SEM_SYSCALL");
@@ -160,61 +113,57 @@ static int executar_cenario(const Cenario *cenario) {
         setenv("TESTE_INTERVALO_IRQ_US", "50000", 1);
         setenv("TESTE_VALIDAR_PC", "1", 1);
         setenv("TESTE_ENCERRAR_AO_FINAL", "1", 1);
-        setenv(cenario->com_syscalls ? "TESTE_SYSCALL" : "TESTE_SEM_SYSCALL",
-               "1", 1);
+        setenv(c.syscalls ? "TESTE_SYSCALL" : "TESTE_SEM_SYSCALL", "1", 1);
         execl("./Simulador", "Simulador", (char *)NULL);
         _exit(127);
     }
 
-    int terminou = 0, estado = 0;
-    for (int passo = 0; passo < 900; passo++) { /* Limite: 90 segundos. */
-        pid_t r = waitpid(simulador, &estado, WNOHANG);
-        if (r == simulador) { terminou = 1; break; }
-        if (r < 0) break;
-        /* Injetamos os mesmos SIGTSTP que Ctrl+Z enviaria ao Simulador. */
-        if (cenario->com_pausa && passo == 10) kill(simulador, SIGTSTP);
-        if (cenario->com_pausa && passo == 40) kill(simulador, SIGTSTP);
+    int status = 0, terminou = 0;
+    for (int ciclo = 0; ciclo < 900; ciclo++) {
+        pid_t retorno = waitpid(pid, &status, WNOHANG);
+        if (retorno == pid) { terminou = 1; break; }
+        if (retorno < 0) break;
+        if (c.pausa && (ciclo == 10 || ciclo == 40)) kill(pid, SIGTSTP);
         usleep(100000);
     }
     if (!terminou) {
-        fprintf(stderr, "[ERRO] Tempo excedido ou processo finalizado anormalmente: %s\n",
-                cenario->nome);
-        kill(simulador, SIGINT);
+        kill(pid, SIGINT);
         for (int i = 0; i < 50; i++) {
-            pid_t r = waitpid(simulador, &estado, WNOHANG);
-            if (r == simulador) { terminou = 1; break; }
-            if (r < 0) break;
+            pid_t retorno = waitpid(pid, &status, WNOHANG);
+            if (retorno == pid) { terminou = 1; break; }
+            if (retorno < 0) break;
             usleep(100000);
         }
-        if (!terminou) {
-            kill(simulador, SIGTERM);
-            waitpid(simulador, &estado, 0);
-        }
+        if (!terminou) { kill(pid, SIGTERM); waitpid(pid, &status, 0); }
+        puts("[ERRO] Tempo limite excedido.");
         fclose(registro);
         return 0;
     }
-    if (!WIFEXITED(estado) || WEXITSTATUS(estado) != 0) {
-        fprintf(stderr, "[ERRO] Simulador terminou com erro no cenario %s\n",
-                cenario->nome);
-        fclose(registro);
-        return 0;
-    }
-    int ok = analisar_registro(registro, cenario);
+    int ok = WIFEXITED(status) && WEXITSTATUS(status) == 0 && analisar(registro, c);
     fclose(registro);
     return ok;
 }
 
-int main(void) {
+int main(int argc, char *argv[]) {
     Cenario cenarios[] = {
         {"5000 iteracoes sem syscall", 0, 0},
         {"5000 iteracoes com SEND e RECV", 1, 0},
         {"5000 iteracoes com pausa e retomada", 0, 1}
     };
-    int aprovados = 0;
+    int inicio = 0, fim = 3;
+    if (argc == 2) {
+        int escolhido = atoi(argv[1]);
+        if (escolhido < 1 || escolhido > 3) {
+            puts("Uso: ./Validar5000 [1|2|3]");
+            return 1;
+        }
+        inicio = escolhido - 1;
+        fim = escolhido;
+    } else if (argc != 1) return 1;
+
+    int passou = 0;
     puts("=== VALIDACAO PROLONGADA DAS 5000 ITERACOES ===");
-    for (size_t i = 0; i < sizeof cenarios / sizeof cenarios[0]; i++)
-        if (executar_cenario(&cenarios[i])) aprovados++;
-    printf("Resultado: %d de %zu cenarios passaram.\n",
-           aprovados, sizeof cenarios / sizeof cenarios[0]);
-    return aprovados == (int)(sizeof cenarios / sizeof cenarios[0]) ? 0 : 1;
+    for (int i = inicio; i < fim; i++) passou += executar(cenarios[i]);
+    printf("Resultado: %d de %d cenarios passaram.\n", passou, fim - inicio);
+    return passou == fim - inicio ? 0 : 1;
 }
