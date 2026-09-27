@@ -133,7 +133,7 @@ int main(void) {
             raise(SIGSTOP);
             execl("./Application", "Application", id, texto_controle,
                   fd, (char *)NULL);
-            _exit(1);
+            exit(1);
         }
 
         filhos[i] = pid;
@@ -166,7 +166,7 @@ int main(void) {
               texto_resp[3], texto_resp[4], texto_resp[5],
               texto_pid[0], texto_pid[1], texto_pid[2],
               texto_pid[3], texto_pid[4], texto_pid[5], fd_estado, (char *)NULL);
-        _exit(1);
+        exit(1);
     }
 
     controlador = fork();
@@ -186,7 +186,7 @@ int main(void) {
         }
         execl("./InterController", "InterController", texto_controle,
               (char *)NULL);
-        _exit(1);
+        exit(1);
     }
 
     close(controle[0]);
