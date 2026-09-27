@@ -1,38 +1,33 @@
 #include "trabalho.h"
 #include <stdlib.h>
-#include <time.h>
 #include <unistd.h>
 
-int main(int argc, char **argv) {
+int main(int argc, char *argv[]) {
     if (argc != 2)
         return 1;
 
     int controle = atoi(argv[1]);
-    int teste = getenv("TESTE_AUTO") != NULL;
-    srand((unsigned)time(NULL) ^ (unsigned)getpid());
-
-    for (;;) {
-        /* sleep trabalha com segundos; o enunciado permite mudar o intervalo. */
+    while (1) {
+        /* O enunciado permite adaptar o intervalo do IRQ0 para 1 segundo. */
         sleep(1);
 
-        Mensagem m = { .tipo = IRQ, .op = NENHUMA };
+        Mensagem m = {0};
+        m.tipo = IRQ;
+        m.op = NENHUMA;
         if (write(controle, &m, sizeof m) != sizeof m)
             break;
 
-        /* Nos testes, concluimos os pedidos a cada ciclo, sem sorteio. */
-        if (teste || rand() % 100 < 10) {
+        if (getenv("TESTE_AUTO") != NULL || rand() % 100 < 10) {
             m.op = RECEBER;
             if (write(controle, &m, sizeof m) != sizeof m)
                 break;
         }
-
-        if (teste || rand() % 100 < 5) {
+        if (getenv("TESTE_AUTO") != NULL || rand() % 100 < 5) {
             m.op = ENVIAR;
             if (write(controle, &m, sizeof m) != sizeof m)
                 break;
         }
     }
-
     close(controle);
     return 0;
 }
