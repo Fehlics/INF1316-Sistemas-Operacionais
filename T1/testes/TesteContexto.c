@@ -1,5 +1,6 @@
 #include "testes.h"
 #include "apoio.h"
+#include "../util.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -7,22 +8,6 @@
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <unistd.h>
-
-/* Le uma estrutura inteira de uma pipe, mesmo quando read retorna
- * menos bytes. Apenas recursos presentes nos laboratorios da turma. */
-static int ler_completo(int fd, void *destino, size_t tamanho) {
-    size_t recebidos = 0;
-    while (recebidos < tamanho) {
-        ssize_t n = read(fd, (char *)destino + recebidos, tamanho - recebidos);
-        if (n == 0) return 0;
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            return 0;
-        }
-        recebidos += (size_t)n;
-    }
-    return 1;
-}
 
 /* Exercita a Application REAL, em vez de apenas inspecionar o PCB:
  * SIGSTOP/SIGCONT nao podem reiniciar seu PC nem apagar N. A resposta
@@ -63,16 +48,16 @@ static int verificar_aplicacao_real(void) {
     int status, ok = 0;
 
     /* A2 avisa que comecou PC=1; interrompemos durante o sono. */
-    if (!ler_completo(controle[0], &m, sizeof m) ||
+    if (!receber_dados(controle[0], &m, sizeof m) ||
         m.tipo != EVENTO_CONTEXTO || m.pedido.pc != 1 || m.pedido.n != 0 ||
         kill(filho, SIGSTOP) < 0 ||
         waitpid(filho, &status, WUNTRACED) != filho ||
         !WIFSTOPPED(status) || kill(filho, SIGCONT) < 0) goto fim;
 
     /* A mesma aplicacao prossegue em PC=2, nao volta ao PC inicial. */
-    if (!ler_completo(controle[0], &m, sizeof m) ||
+    if (!receber_dados(controle[0], &m, sizeof m) ||
         m.tipo != EVENTO_CONTEXTO || m.pedido.pc != 2 || m.pedido.n != 0 ||
-        !ler_completo(controle[0], &m, sizeof m) ||
+        !receber_dados(controle[0], &m, sizeof m) ||
         m.tipo != EVENTO_SYSCALL || m.pedido.id_aplicacao != 2 ||
         m.pedido.operacao != RECEBER || m.pedido.endereco != ENDERECO_N ||
         m.pedido.pc != 2 || m.pedido.n != 0) goto fim;
@@ -88,11 +73,11 @@ static int verificar_aplicacao_real(void) {
 
     /* A resposta restabelece PC/N, que permanecem corretos na proxima
      * iteracao mesmo apos os dois ciclos de parada/retomada. */
-    if (!ler_completo(controle[0], &m, sizeof m) ||
+    if (!receber_dados(controle[0], &m, sizeof m) ||
         m.tipo != EVENTO_CONTEXTO || m.pedido.pc != 2 || m.pedido.n != 77 ||
-        !ler_completo(controle[0], &m, sizeof m) ||
+        !receber_dados(controle[0], &m, sizeof m) ||
         m.tipo != EVENTO_CONTEXTO || m.pedido.pc != 3 || m.pedido.n != 77 ||
-        !ler_completo(controle[0], &m, sizeof m) ||
+        !receber_dados(controle[0], &m, sizeof m) ||
         m.tipo != EVENTO_TERMINO || m.pedido.pc != 3 || m.pedido.n != 77)
         goto fim;
     if (waitpid(filho, &status, WNOHANG) != 0) goto fim;
@@ -136,11 +121,11 @@ static int verificar_parametros_no_pcb(void) {
     if (write(a.controle, &evento, sizeof evento) != (ssize_t)sizeof evento)
         goto fim;
     EstadoSimulador estado;
-    if (!ler_completo(a.estados, &estado, sizeof estado) || estado.fase != 1 ||
+    if (!receber_dados(a.estados, &estado, sizeof estado) || estado.fase != 1 ||
         !verificar_parada(a.auxiliares[1])) goto fim;
     evento.tipo = EVENTO_MOSTRAR;
     if (write(a.controle, &evento, sizeof evento) != (ssize_t)sizeof evento ||
-        !ler_completo(a.estados, &estado, sizeof estado) || estado.fase != 2 ||
+        !receber_dados(a.estados, &estado, sizeof estado) || estado.fase != 2 ||
         estado.processos[0].estado != BLOQUEADO_ESCRITA ||
         estado.processos[0].operacao_pendente != ENVIAR ||
         estado.processos[0].endereco_pendente != ENDERECO_PC ||
@@ -148,17 +133,17 @@ static int verificar_parametros_no_pcb(void) {
 
     evento.tipo = EVENTO_RETOMAR;
     if (write(a.controle, &evento, sizeof evento) != (ssize_t)sizeof evento ||
-        !ler_completo(a.estados, &estado, sizeof estado) || estado.fase != 3 ||
+        !receber_dados(a.estados, &estado, sizeof estado) || estado.fase != 3 ||
         !esperar_ativo(&a, 2) || !enviar_irq_teste(&a, IRQ2) ||
         !ler_resposta_teste(&a, 1, ENVIAR, 8)) goto fim;
 
     evento.tipo = EVENTO_PAUSAR;
     if (write(a.controle, &evento, sizeof evento) != (ssize_t)sizeof evento ||
-        !ler_completo(a.estados, &estado, sizeof estado) || estado.fase != 1 ||
+        !receber_dados(a.estados, &estado, sizeof estado) || estado.fase != 1 ||
         !verificar_parada(a.auxiliares[1])) goto fim;
     evento.tipo = EVENTO_MOSTRAR;
     if (write(a.controle, &evento, sizeof evento) != (ssize_t)sizeof evento ||
-        !ler_completo(a.estados, &estado, sizeof estado) || estado.fase != 2 ||
+        !receber_dados(a.estados, &estado, sizeof estado) || estado.fase != 2 ||
         estado.processos[0].estado != PRONTO ||
         estado.processos[0].operacao_pendente != NENHUMA_OPERACAO ||
         estado.processos[0].endereco_pendente != SEM_ENDERECO ||
