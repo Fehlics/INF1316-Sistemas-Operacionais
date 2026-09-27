@@ -3,7 +3,7 @@
  * eventos "a mao" pela pipe de controle, como fariam Application e
  * InterController. Nao usa variaveis de ambiente nem infraestrutura
  * extra: só pipes, fork/exec e sinais. */
-#include "../trabalho.h"
+#include "trabalho.h"
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
