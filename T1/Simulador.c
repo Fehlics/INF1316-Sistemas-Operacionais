@@ -68,11 +68,12 @@ static void mostrar_estados(const EstadoSimulador *estado) {
         printf("[Estado] A%d PID=%ld PC=%d N=%d ESTADO=%s",
                p->id, (long)p->pid, p->pc, p->n, nome_estado(p->estado));
         if (p->operacao_pendente != NENHUMA_OPERACAO) {
-            printf(" DISPOSITIVO=pipe%d OPERACAO=%s",
+            printf(" DISPOSITIVO=pipe%d OPERACAO=%s ENDERECO=%s",
                    i / 2 + 1,
-                   p->operacao_pendente == ENVIAR ? "SEND" : "RECV");
+                   p->operacao_pendente == ENVIAR ? "SEND" : "RECV",
+                   p->endereco_pendente == ENDERECO_PC ? "PC" : "N");
         } else {
-            printf(" DISPOSITIVO=nenhum OPERACAO=nenhuma");
+            printf(" DISPOSITIVO=nenhum OPERACAO=nenhuma ENDERECO=nenhum");
         }
         printf(" EXECUTANDO=%s LEITURAS=%d ESCRITAS=%d TERMINADO=%s\n",
                p->estado == EXECUTANDO ? "sim (antes da pausa)" : "nao",
