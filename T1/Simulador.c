@@ -329,6 +329,10 @@ int main(void) {
                 perror("Simulador: waitpid");
                 break;
             }
+            /* Em teste prolongado, encerra automaticamente ao recolher
+             * as seis aplicacoes; nao modifica a execucao normal. */
+            if (restantes == 0 && getenv("TESTE_ENCERRAR_AO_FINAL") != NULL)
+                break;
             if (!encerrar) sleep(1);
         }
     }

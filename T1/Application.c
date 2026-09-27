@@ -126,6 +126,16 @@ int main(int argc, char *argv[]) {
     }
     int teste = getenv("TESTE_SYSCALL") != NULL;
     int sem_syscall = getenv("TESTE_SEM_SYSCALL") != NULL;
+    /* Somente nos testes prolongados: diminui a espera, mas NAO altera
+     * MAX_ITERACOES nem o numero de incrementos do contador. */
+    int intervalo_teste = 0;
+    const char *texto_intervalo = getenv("TESTE_INTERVALO_US");
+    if (texto_intervalo != NULL) {
+        char *fim;
+        long valor = strtol(texto_intervalo, &fim, 10);
+        if (*fim == '\0' && valor >= 1 && valor <= 500000)
+            intervalo_teste = (int)valor;
+    }
     srand((unsigned)time(NULL) ^ (unsigned)getpid());
     setbuf(stdout, NULL);
 
@@ -138,7 +148,8 @@ int main(int argc, char *argv[]) {
             close(fd_resposta);
             return 1;
         }
-        sleep(1);
+        if (intervalo_teste) usleep((useconds_t)intervalo_teste);
+        else sleep(1);
         Operacao operacao = NENHUMA_OPERACAO;
         if (!sem_syscall && teste && pc == 2 && id == 1) operacao = ENVIAR;
         else if (!sem_syscall && teste && pc == 2 && id == 2) operacao = RECEBER;
