@@ -29,6 +29,11 @@ static int pausado = 0;
 static int fd_status = -1;
 static int ultima_ativa_na_pausa = 0;
 static int confirmar_termino_depois[QUANTIDADE_APLICACOES];
+/* Auditoria optativa, apenas para garantir que as 5000 iteracoes
+ * realmente informaram PC=1, 2, ... 5000, sem saltos. */
+static int passos_conferidos[QUANTIDADE_APLICACOES];
+static int contextos_repetidos[QUANTIDADE_APLICACOES];
+static int contextos_invalidos[QUANTIDADE_APLICACOES];
 
 static int parceiro(int indice) {
     return indice % 2 == 0 ? indice + 1 : indice - 1;
@@ -99,6 +104,15 @@ static void atualizar_contexto(PedidoSyscall valor) {
     Processo *p = &processos[valor.id_aplicacao - 1];
     if (p->estado == TERMINADO) return;
     /* Os eventos de um mesmo remetente chegam na mesma ordem da pipe. */
+    if (getenv("TESTE_VALIDAR_PC") != NULL) {
+        int i = valor.id_aplicacao - 1;
+        if (valor.pc == passos_conferidos[i] + 1)
+            passos_conferidos[i]++;
+        else if (valor.pc == passos_conferidos[i])
+            contextos_repetidos[i]++; /* Depois de concluir syscall. */
+        else
+            contextos_invalidos[i]++;
+    }
     p->pc = valor.pc;
     p->n = valor.n;
 }
@@ -237,6 +251,15 @@ static void tratar_termino(PedidoSyscall aviso) {
     p->endereco_pendente = SEM_ENDERECO;
     p->estado = TERMINADO;
     quantidade_terminados++;
+    if (getenv("TESTE_VALIDAR_PC") != NULL) {
+        int passou = passos_conferidos[indice] == MAX_ITERACOES &&
+                     aviso.pc == MAX_ITERACOES &&
+                     contextos_invalidos[indice] == 0;
+        printf("[Validacao5000] A%d %s passos=%d repetidos=%d erros=%d PC=%d\n",
+               p->id, passou ? "PASSOU" : "FALHOU",
+               passos_conferidos[indice], contextos_repetidos[indice],
+               contextos_invalidos[indice], aviso.pc);
+    }
     printf("[Kernel] A%d TERMINADO (PC=%d, N=%d, leituras=%d, escritas=%d).\n",
            p->id, p->pc, p->n, p->leituras, p->escritas);
 
