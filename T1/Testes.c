@@ -37,7 +37,7 @@ static int testar(const char *nome, int maximo, int modo, int pausa) {
         setenv("TESTE_AUTO", "1", 1);
         setenv("TESTE_AUDIT", "1", 1);
         execl("./Simulador", "Simulador", (char *)NULL);
-        _exit(1);
+        exit(1);
     }
 
     int status = 0, saiu = 0;
