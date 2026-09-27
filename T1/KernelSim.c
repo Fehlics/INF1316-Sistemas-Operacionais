@@ -5,10 +5,18 @@
 #include <unistd.h>
 
 Processo p[TOTAL];
-int respostas[TOTAL], estado_fd;
-int atual = -1, ultimo = -1, pausado, terminados;
-int fila[2][TOTAL], inicio[2], quantidade[2];
-int buffer[TOTAL][MAX], pos[TOTAL], tamanho[TOTAL];
+int respostas[TOTAL];
+int estado_fd;
+int atual = -1;
+int ultimo = -1;
+int pausado = 0;
+int terminados = 0;
+int fila[2][TOTAL];
+int inicio[2];
+int quantidade[2];
+int buffer[TOTAL][MAX];
+int pos[TOTAL];
+int tamanho[TOTAL];
 int confirmar_depois[TOTAL];
 
 void escalonar(void) {
@@ -43,14 +51,21 @@ void foto(int fase) {
 
 void pedido(Mensagem m) {
     int i = m.id - 1;
-    if (i < 0 || i >= TOTAL ||
-        (m.op != RECEBER && m.op != ENVIAR))
+    if (i < 0 || i >= TOTAL)
+        return;
+    if (m.op != RECEBER && m.op != ENVIAR)
+        return;
+    if (m.op == RECEBER && m.endereco != END_N)
+        return;
+    if (m.op == ENVIAR && m.endereco != END_PC)
         return;
 
-    int tipo = m.op == RECEBER ? 0 : 1;
-    if (m.endereco != (m.op == ENVIAR ? END_PC : END_N) ||
-        (p[i].estado != PRONTO && p[i].estado != EXECUTANDO) ||
-        quantidade[tipo] == TOTAL)
+    int tipo = 0;
+    if (m.op == ENVIAR)
+        tipo = 1;
+    if (p[i].estado != PRONTO && p[i].estado != EXECUTANDO)
+        return;
+    if (quantidade[tipo] == TOTAL)
         return;
 
     int fim = (inicio[tipo] + quantidade[tipo]) % TOTAL;
@@ -70,7 +85,9 @@ void pedido(Mensagem m) {
 }
 
 void concluir(int op) {
-    int tipo = op == RECEBER ? 0 : 1;
+    int tipo = 0;
+    if (op == ENVIAR)
+        tipo = 1;
     if (!quantidade[tipo])
         return;
 
@@ -86,10 +103,12 @@ void concluir(int op) {
         printf("SEND A%d PC=%d\n", i + 1, p[i].pc);
     } else {
         int parceiro = i % 2 == 0 ? i + 1 : i - 1;
-        p[i].n = tamanho[parceiro] ? buffer[parceiro][pos[parceiro]] : 0;
-        if (tamanho[parceiro]) {
+        if (tamanho[parceiro] > 0) {
+            p[i].n = buffer[parceiro][pos[parceiro]];
             pos[parceiro] = (pos[parceiro] + 1) % MAX;
             tamanho[parceiro]--;
+        } else {
+            p[i].n = 0;
         }
         p[i].leituras++;
         printf("RECV A%d N=%d\n", i + 1, p[i].n);
