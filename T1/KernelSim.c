@@ -124,7 +124,6 @@ void terminar(Mensagem m) {
     printf("TERMINOU A%d PC=%d N=%d L=%d E=%d\n", i + 1,
            m.pc, m.n, p[i].leituras, p[i].escritas);
 
-
     Resposta r = { .op = NENHUMA, .pc = m.pc, .n = m.n };
     write(respostas[i], &r, sizeof r);
     if (pausado)
