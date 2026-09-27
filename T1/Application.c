@@ -7,12 +7,13 @@
 
 /* Envia o pedido pelo canal de controle e aguarda a resposta individual. */
 static int solicitar_syscall(int fd_controle, int fd_resposta, int id,
-                            Operacao operacao, int pc, int *n) {
+                            Operacao operacao, int *pc, int *n) {
     MensagemControle mensagem = {0};
     mensagem.tipo = EVENTO_SYSCALL;
     mensagem.pedido.id_aplicacao = id;
     mensagem.pedido.operacao = operacao;
-    mensagem.pedido.pc = pc;
+    mensagem.pedido.endereco = operacao == ENVIAR ? ENDERECO_PC : ENDERECO_N;
+    mensagem.pedido.pc = *pc;
     mensagem.pedido.n = *n;
 
     ssize_t escritos;
@@ -24,7 +25,7 @@ static int solicitar_syscall(int fd_controle, int fd_resposta, int id,
         return 0;
     }
     printf("[A%d] Solicitou %s (PC=%d, N=%d)\n", id,
-           operacao == ENVIAR ? "SEND" : "RECV", pc, *n);
+           operacao == ENVIAR ? "SEND" : "RECV", *pc, *n);
 
     RespostaSyscall resposta;
     size_t total = 0;
@@ -40,9 +41,13 @@ static int solicitar_syscall(int fd_controle, int fd_resposta, int id,
         total += (size_t)lidos;
     }
     if (resposta.id_aplicacao != id || resposta.operacao != operacao) return 0;
-    if (operacao == RECEBER) *n = resposta.n;
+    /* Na volta de uma syscall, a resposta contem o contexto do PCB.
+     * Fora das syscalls, SIGSTOP/SIGCONT preservam as variaveis locais
+     * atraves do proprio Linux (nao ha manipulacao de registradores). */
+    *pc = resposta.pc;
+    *n = resposta.n;
     printf("[A%d] %s concluido (PC=%d, N=%d)\n", id,
-           operacao == ENVIAR ? "SEND" : "RECV", pc, *n);
+           operacao == ENVIAR ? "SEND" : "RECV", *pc, *n);
     return 1;
 }
 
@@ -98,7 +103,7 @@ static int avisar_termino(int controle, int fd_resposta, int id, int pc, int n) 
         total += (size_t)lidos;
     }
     return resposta.id_aplicacao == id &&
-           resposta.operacao == NENHUMA_OPERACAO;
+           resposta.operacao == NENHUMA_OPERACAO && resposta.pc == pc;
 }
 
 int main(int argc, char *argv[]) {
@@ -142,7 +147,7 @@ int main(int argc, char *argv[]) {
 
         if (operacao != NENHUMA_OPERACAO &&
             !solicitar_syscall(fd_controle, fd_resposta, id,
-                              operacao, pc, &n)) {
+                              operacao, &pc, &n)) {
             close(fd_controle);
             close(fd_resposta);
             return 1;
