@@ -166,6 +166,7 @@ int enviar_pedido_teste(AmbienteTeste *a, int id, Operacao op, int pc, int n) {
     m.tipo = EVENTO_SYSCALL;
     m.pedido.id_aplicacao = id;
     m.pedido.operacao = op;
+    m.pedido.endereco = op == ENVIAR ? ENDERECO_PC : ENDERECO_N;
     m.pedido.pc = pc;
     m.pedido.n = n;
     return write(a->controle, &m, sizeof m) == (ssize_t)sizeof m;
