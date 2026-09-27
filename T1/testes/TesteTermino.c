@@ -102,7 +102,9 @@ static int testar_aviso_da_aplicacao(void) {
 static void recolher_auxiliar(AmbienteTeste *a, int id) {
     pid_t pid = a->auxiliares[id - 1];
     if (pid > 0) {
-        kill(pid, SIGCONT);
+        /* Este auxiliar ja esta executando: o KernelSim enviou
+         * SIGCONT antes da confirmacao do termino. Outro SIGCONT
+         * geraria um aviso duplicado e alteraria a ordem dos testes. */
         kill(pid, SIGTERM);
         waitpid(pid, NULL, 0);
         a->auxiliares[id - 1] = -1;
