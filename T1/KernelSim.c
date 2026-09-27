@@ -25,6 +25,10 @@ static BufferPipe buffers[QUANTIDADE_APLICACOES];
 static int respostas[QUANTIDADE_APLICACOES];
 static int atual = -1, ultimo_escalonado = -1;
 static int quantidade_terminados = 0;
+static int pausado = 0;
+static int fd_status = -1;
+static int ultima_ativa_na_pausa = 0;
+static int confirmar_termino_depois[QUANTIDADE_APLICACOES];
 
 static int parceiro(int indice) {
     return indice % 2 == 0 ? indice + 1 : indice - 1;
@@ -62,6 +66,7 @@ static int desenfileirar(FilaBloqueados *f) {
 }
 
 static void escalonar(void) {
+    if (pausado) return;
     if (atual != -1 && processos[atual].estado == EXECUTANDO) {
         kill(processos[atual].pid, SIGSTOP);
         processos[atual].estado = PRONTO;
@@ -81,6 +86,58 @@ static void escalonar(void) {
     /* Evita repetir a mesma mensagem a cada IRQ0 depois do ultimo fim. */
     if (quantidade_terminados < QUANTIDADE_APLICACOES)
         puts("[Kernel] Nenhuma aplicacao pronta.");
+}
+
+/* Cada aplicacao informa seu PC/N no inicio da iteracao e depois de
+ * uma syscall. Assim o PCB nao depende de a aplicacao gerar SEND/RECV. */
+static void atualizar_contexto(PedidoSyscall valor) {
+    if (valor.id_aplicacao < 1 || valor.id_aplicacao > QUANTIDADE_APLICACOES)
+        return;
+    Processo *p = &processos[valor.id_aplicacao - 1];
+    if (p->estado == TERMINADO) return;
+    /* Os eventos de um mesmo remetente chegam na mesma ordem da pipe. */
+    p->pc = valor.pc;
+    p->n = valor.n;
+}
+
+/* Entrega o estado atual ao Simulador. Somente o kernel escreve nessa pipe. */
+static void enviar_estado(int fase) {
+    if (fd_status < 0) return; /* Os testes mais antigos nao usam status. */
+    EstadoSimulador fotografia = {0};
+    fotografia.fase = fase;
+    fotografia.executando = ultima_ativa_na_pausa;
+    for (int i = 0; i < QUANTIDADE_APLICACOES; i++)
+        fotografia.processos[i] = processos[i];
+    ssize_t escritos;
+    do { escritos = write(fd_status, &fotografia, sizeof fotografia); }
+    while (escritos < 0 && errno == EINTR);
+    if (escritos != (ssize_t)sizeof fotografia)
+        perror("Kernel: estado para Simulador");
+}
+
+static void tratar_pausa(void) {
+    if (pausado) return;
+    pausado = 1;
+    ultima_ativa_na_pausa = atual < 0 ? 0 : processos[atual].id;
+    if (atual >= 0) kill(processos[atual].pid, SIGSTOP);
+    enviar_estado(1); /* Agora o Simulador pode confirmar as paradas. */
+}
+
+static void tratar_retomada(void) {
+    if (!pausado) return;
+    pausado = 0;
+    /* Um processo terminado pode ter escrito EVENTO_TERMINO pouco antes
+       da pausa: SIGCONT apenas lhe permite ler a confirmacao e sair. */
+    for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
+        if (confirmar_termino_depois[i]) {
+            kill(processos[i].pid, SIGCONT);
+            confirmar_termino_depois[i] = 0;
+        }
+    }
+    if (atual >= 0 && processos[atual].estado == EXECUTANDO)
+        kill(processos[atual].pid, SIGCONT);
+    else escalonar();
+    enviar_estado(3);
 }
 
 static void tratar_pedido(PedidoSyscall pedido) {
@@ -183,7 +240,8 @@ static void tratar_termino(PedidoSyscall aviso) {
 
     /* Um processo preemptado apos escrever o aviso ainda pode estar parado.
        Retoma-o somente para receber a confirmacao e encerrar. */
-    if (estava_parado) kill(p->pid, SIGCONT);
+    if (pausado) confirmar_termino_depois[indice] = 1;
+    else if (estava_parado) kill(p->pid, SIGCONT);
     if (estava_executando) {
         atual = -1;
         escalonar();
@@ -193,6 +251,9 @@ static void tratar_termino(PedidoSyscall aviso) {
 }
 
 static void tratar_interrupcao(TipoIRQ irq) {
+    /* O controlador estara suspenso durante a pausa. Caso uma mensagem
+       seja injetada por teste, ela nao modifica o estado congelado. */
+    if (pausado) return;
     switch (irq) {
         case IRQ0: escalonar(); break;
         case IRQ1: concluir(&fila_leitura, RECEBER); break;
@@ -218,12 +279,15 @@ static int ler_evento(int fd, MensagemControle *mensagem) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != QUANTIDADE_APLICACOES * 2 + 2) {
-        fprintf(stderr, "Uso: KernelSim FD_CONTROLE RES_A1..A6 PID_A1..A6\n");
+    if (argc != QUANTIDADE_APLICACOES * 2 + 2 &&
+        argc != QUANTIDADE_APLICACOES * 2 + 3) {
+        fprintf(stderr, "Uso: KernelSim FD_CONTROLE RES_A1..A6 PID_A1..A6 [FD_STATUS]\n");
         return 1;
     }
     setbuf(stdout, NULL);
     int controle = atoi(argv[1]);
+    if (argc == QUANTIDADE_APLICACOES * 2 + 3)
+        fd_status = atoi(argv[2 + 2 * QUANTIDADE_APLICACOES]);
     for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
         respostas[i] = atoi(argv[2 + i]);
         processos[i].id = i + 1;
@@ -239,8 +303,17 @@ int main(int argc, char *argv[]) {
             tratar_pedido(mensagem.pedido);
         else if (mensagem.tipo == EVENTO_TERMINO)
             tratar_termino(mensagem.pedido);
+        else if (mensagem.tipo == EVENTO_CONTEXTO)
+            atualizar_contexto(mensagem.pedido);
+        else if (mensagem.tipo == EVENTO_PAUSAR)
+            tratar_pausa();
+        else if (mensagem.tipo == EVENTO_MOSTRAR && pausado)
+            enviar_estado(2);
+        else if (mensagem.tipo == EVENTO_RETOMAR)
+            tratar_retomada();
     }
     close(controle);
+    if (fd_status >= 0) close(fd_status);
     for (int i = 0; i < QUANTIDADE_APLICACOES; i++) close(respostas[i]);
     return 0;
 }
