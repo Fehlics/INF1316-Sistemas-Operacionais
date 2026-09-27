@@ -17,6 +17,10 @@ typedef enum {
 } EstadoProcesso;
 
 typedef enum { NENHUMA_OPERACAO, RECEBER, ENVIAR } Operacao;
+/* Representacao LOGICA do endereco de uma syscall. Um ponteiro real
+ * de Application nao pode ser utilizado diretamente por KernelSim,
+ * pois os dois sao processos Unix com memorias independentes. */
+typedef enum { SEM_ENDERECO, ENDERECO_PC, ENDERECO_N } EnderecoSyscall;
 typedef enum { IRQ0, IRQ1, IRQ2 } TipoIRQ;
 
 /* Os dois produtores escrevem na MESMA pipe, informando o tipo. */
@@ -28,6 +32,7 @@ typedef enum {
 typedef struct {
     int id_aplicacao;
     Operacao operacao;
+    EnderecoSyscall endereco;
     int pc;
     int n;
 } PedidoSyscall;
@@ -45,6 +50,7 @@ typedef struct {
     /* NENHUMA_OPERACAO e usada para confirmar EVENTO_TERMINO. */
     Operacao operacao;
     int n;
+    int pc; /* PC salvo no kernel e devolvido ao concluir a syscall. */
 } RespostaSyscall;
 
 typedef struct {
@@ -54,6 +60,7 @@ typedef struct {
     int n;
     EstadoProcesso estado;
     Operacao operacao_pendente;
+    EnderecoSyscall endereco_pendente;
     int leituras;
     int escritas;
 } Processo;

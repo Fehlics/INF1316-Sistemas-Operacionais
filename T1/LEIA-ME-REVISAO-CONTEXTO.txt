@@ -1,0 +1,7 @@
+REVISAO DA TROCA DE CONTEXTO
+
+Linux preserva o contexto real de cada Application durante SIGSTOP e o restaura ao receber SIGCONT. O KernelSim, por sua vez, guarda em seu PCB uma copia dos campos simulados PC, N, operacao e endereco logico da syscall (PC em SEND e N em RECV). Quando o KernelSim conclui uma syscall, devolve PC e N na resposta e a Application restaura ambos.
+
+TesteContexto.c valida a preservacao das variaveis apos preempcao, a restauracao depois de RECV e os parametros de SEND no PCB. Execute no diretorio T1: gcc -Wall -Wextra testes/*.c -o Testes && ./Testes. Recompile tambem Simulador.c, KernelSim.c, InterController.c e Application.c antes de testar.
+
+A execucao completa de 5000 iteracoes e o relatorio final sao verificacoes separadas.

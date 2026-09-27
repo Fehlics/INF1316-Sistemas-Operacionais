@@ -67,6 +67,9 @@ static int desenfileirar(FilaBloqueados *f) {
 
 static void escalonar(void) {
     if (pausado) return;
+    /* O Linux salva/restaura os registradores e variaveis das aplicacoes
+     * quando recebe SIGSTOP/SIGCONT. O PCB abaixo e o CONTEXTO SIMULADO,
+     * atualizado por EVENTO_CONTEXTO e pelas mensagens das syscalls. */
     if (atual != -1 && processos[atual].estado == EXECUTANDO) {
         kill(processos[atual].pid, SIGSTOP);
         processos[atual].estado = PRONTO;
@@ -142,7 +145,9 @@ static void tratar_retomada(void) {
 
 static void tratar_pedido(PedidoSyscall pedido) {
     if (pedido.id_aplicacao < 1 || pedido.id_aplicacao > QUANTIDADE_APLICACOES ||
-        (pedido.operacao != ENVIAR && pedido.operacao != RECEBER)) {
+        (pedido.operacao != ENVIAR && pedido.operacao != RECEBER) ||
+        (pedido.operacao == ENVIAR && pedido.endereco != ENDERECO_PC) ||
+        (pedido.operacao == RECEBER && pedido.endereco != ENDERECO_N)) {
         puts("[Kernel] Pedido invalido.");
         return;
     }
@@ -155,6 +160,7 @@ static void tratar_pedido(PedidoSyscall pedido) {
     p->pc = pedido.pc;
     p->n = pedido.n;
     p->operacao_pendente = pedido.operacao;
+    p->endereco_pendente = pedido.endereco;
     p->estado = pedido.operacao == ENVIAR ? BLOQUEADO_ESCRITA : BLOQUEADO_LEITURA;
     kill(p->pid, SIGSTOP);
     printf("[Kernel] Bloqueou A%d (%s, PC=%d, N=%d; fila=%d)\n",
@@ -186,7 +192,9 @@ static void concluir(FilaBloqueados *f, Operacao op) {
                p->id, p->n, parceiro(indice) + 1);
     }
     desenfileirar(f);
-    RespostaSyscall resposta = {p->id, op, p->n};
+    /* Retorna PC e N explicitamente: Application restaura as variaveis
+     * simuladas quando a syscall termina. */
+    RespostaSyscall resposta = {p->id, op, p->n, p->pc};
     ssize_t escritos;
     do {
         escritos = write(respostas[indice], &resposta, sizeof resposta);
@@ -198,6 +206,7 @@ static void concluir(FilaBloqueados *f, Operacao op) {
     if (op == ENVIAR) p->escritas++;
     else p->leituras++;
     p->operacao_pendente = NENHUMA_OPERACAO;
+    p->endereco_pendente = SEM_ENDERECO;
     p->estado = PRONTO;
     printf("[Kernel] Concluiu %s de A%d; A%d agora PRONTO.\n",
            op == ENVIAR ? "SEND" : "RECV", p->id, p->id);
@@ -225,13 +234,14 @@ static void tratar_termino(PedidoSyscall aviso) {
     p->pc = aviso.pc;
     p->n = aviso.n;
     p->operacao_pendente = NENHUMA_OPERACAO;
+    p->endereco_pendente = SEM_ENDERECO;
     p->estado = TERMINADO;
     quantidade_terminados++;
     printf("[Kernel] A%d TERMINADO (PC=%d, N=%d, leituras=%d, escritas=%d).\n",
            p->id, p->pc, p->n, p->leituras, p->escritas);
 
     /* Confirma o recebimento, antes de o processo Unix efetuar exit. */
-    RespostaSyscall resposta = {p->id, NENHUMA_OPERACAO, p->n};
+    RespostaSyscall resposta = {p->id, NENHUMA_OPERACAO, p->n, p->pc};
     ssize_t escritos;
     do { escritos = write(respostas[indice], &resposta, sizeof resposta); }
     while (escritos < 0 && errno == EINTR);

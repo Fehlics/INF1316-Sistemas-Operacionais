@@ -8,3 +8,4 @@ int testar_pipes(void);
 int testar_escalonamento(void);
 int testar_termino(void);
 int testar_pausa(void);
+int testar_contexto(void);
