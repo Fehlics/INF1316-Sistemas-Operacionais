@@ -1,5 +1,6 @@
 #include "testes.h"
 #include "apoio.h"
+#include "../util.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -9,27 +10,14 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-/* Le a estrutura completa produzida pelo KernelSim sem poll/select. */
 static int receber_fotografia(AmbienteTeste *a, EstadoSimulador *estado,
                              int fase) {
-    size_t total = 0;
-    while (total < sizeof *estado) {
-        ssize_t n = read(a->estados, (char *)estado + total,
-                         sizeof *estado - total);
-        if (n == 0) return 0;
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            return 0;
-        }
-        total += (size_t)n;
-    }
-    return estado->fase == fase;
+    return receber_dados(a->estados, estado, sizeof *estado) && estado->fase == fase;
 }
 
 static int evento_simulador(AmbienteTeste *a, TipoEvento tipo) {
-    MensagemControle m = {0};
-    m.tipo = tipo;
-    return write(a->controle, &m, sizeof m) == (ssize_t)sizeof m;
+    MensagemControle m = {.tipo = tipo};
+    return enviar_dados(a->controle, &m, sizeof m);
 }
 
 static int atualizar_pc_e_n(AmbienteTeste *a, int id, int pc, int n) {
@@ -38,7 +26,7 @@ static int atualizar_pc_e_n(AmbienteTeste *a, int id, int pc, int n) {
     m.pedido.id_aplicacao = id;
     m.pedido.pc = pc;
     m.pedido.n = n;
-    return write(a->controle, &m, sizeof m) == (ssize_t)sizeof m;
+    return enviar_dados(a->controle, &m, sizeof m);
 }
 
 /* Injeta IRQs de forma controlada e confere contexto/pausa/retomada. */
