@@ -7,3 +7,4 @@ int testar_respostas(void);
 int testar_pipes(void);
 int testar_escalonamento(void);
 int testar_termino(void);
+int testar_pausa(void);

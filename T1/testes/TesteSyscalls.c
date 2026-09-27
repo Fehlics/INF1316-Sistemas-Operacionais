@@ -30,8 +30,16 @@ static int testar_operacao(int id, Operacao operacao, int valor) {
     close(controle[1]); close(resposta[0]); close(saida[1]);
     int ok = 0;
     MensagemControle mensagem;
-    ssize_t lidos = read(controle[0], &mensagem, sizeof mensagem);
-    if (lidos == (ssize_t)sizeof mensagem &&
+    ssize_t lidos;
+    int atualizacoes = 0;
+    /* Application emite EVENTO_CONTEXTO antes de cada passo. */
+    do {
+        lidos = read(controle[0], &mensagem, sizeof mensagem);
+        if (lidos == (ssize_t)sizeof mensagem &&
+            mensagem.tipo == EVENTO_CONTEXTO) atualizacoes++;
+    } while (lidos == (ssize_t)sizeof mensagem &&
+             mensagem.tipo == EVENTO_CONTEXTO && atualizacoes < 3);
+    if (atualizacoes == 2 && lidos == (ssize_t)sizeof mensagem &&
         mensagem.tipo == EVENTO_SYSCALL &&
         mensagem.pedido.id_aplicacao == id &&
         mensagem.pedido.operacao == operacao &&

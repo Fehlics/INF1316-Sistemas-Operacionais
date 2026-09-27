@@ -20,7 +20,10 @@ typedef enum { NENHUMA_OPERACAO, RECEBER, ENVIAR } Operacao;
 typedef enum { IRQ0, IRQ1, IRQ2 } TipoIRQ;
 
 /* Os dois produtores escrevem na MESMA pipe, informando o tipo. */
-typedef enum { EVENTO_INTERRUPCAO, EVENTO_SYSCALL, EVENTO_TERMINO } TipoEvento;
+typedef enum {
+    EVENTO_INTERRUPCAO, EVENTO_SYSCALL, EVENTO_TERMINO,
+    EVENTO_CONTEXTO, EVENTO_PAUSAR, EVENTO_MOSTRAR, EVENTO_RETOMAR
+} TipoEvento;
 
 typedef struct {
     int id_aplicacao;
@@ -54,3 +57,11 @@ typedef struct {
     int leituras;
     int escritas;
 } Processo;
+
+/* KernelSim responde ao Simulador por uma pipe propria. Usamos estruturas
+ * simples, assim como na comunicacao de syscalls. */
+typedef struct {
+    int fase; /* 1 = parou, 2 = fotografia pronta, 3 = retomou */
+    int executando; /* ID da aplicacao que ocupava a CPU antes da pausa */
+    Processo processos[QUANTIDADE_APLICACOES];
+} EstadoSimulador;

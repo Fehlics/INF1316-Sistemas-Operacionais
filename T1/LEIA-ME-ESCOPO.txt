@@ -60,9 +60,9 @@ gcc -Wall -Wextra testes/Testes.c testes/apoio.c testes/TesteProcessos.c testes/
 ./Testes
 
 ITENS AINDA NAO IMPLEMENTADOS (atualizados apos esta etapa)
-- Atualizar PC e N em toda troca de contexto e restaurar contexto na simulacao;
-- Pausa/retomada coordenada com Ctrl+Z e relatorio de todos os estados;
-- Testes dessas novas funcionalidades e relatorio final da entrega.
+- Atualizacao de PC e N e pausa/retomada com Ctrl+Z foram implementadas;
+  consulte LEIA-ME-CONTEXTO-PAUSA.txt.
+- Falta preparar/revisar o relatorio final da entrega e consolidar os testes.
 
 OBSERVACOES
 - Os processos auxiliares dos testes nao realizam 5000 iteracoes; o novo

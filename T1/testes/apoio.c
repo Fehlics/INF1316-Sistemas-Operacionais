@@ -37,6 +37,7 @@ void encerrar_ambiente(AmbienteTeste *a) {
     }
     fechar(&a->controle);
     fechar(&a->avisos);
+    fechar(&a->estados);
 }
 
 int esperar_ativo(AmbienteTeste *a, int id) {
@@ -64,15 +65,17 @@ int verificar_parada(pid_t pid) {
 
 int iniciar_ambiente(AmbienteTeste *a) {
     int canal[2] = {-1, -1}, avisos[2] = {-1, -1};
+    int estados[2] = {-1, -1};
     int respostas[QUANTIDADE_APLICACOES][2];
     for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
         a->auxiliares[i] = -1;
         a->resposta[i] = -1;
         respostas[i][0] = respostas[i][1] = -1;
     }
-    a->controle = a->avisos = -1;
+    a->controle = a->avisos = a->estados = -1;
     a->kernel = -1;
-    if (pipe(canal) == -1 || pipe(avisos) == -1) goto falha;
+    if (pipe(canal) == -1 || pipe(avisos) == -1 || pipe(estados) == -1)
+        goto falha;
     for (int i = 0; i < QUANTIDADE_APLICACOES; i++)
         if (pipe(respostas[i]) == -1) goto falha;
 
@@ -83,6 +86,7 @@ int iniciar_ambiente(AmbienteTeste *a) {
             fd_aviso = avisos[1];
             numero_aplicacao = (char)(i + 1);
             close(avisos[0]);
+            close(estados[0]); close(estados[1]);
             close(canal[0]); close(canal[1]);
             for (int j = 0; j < QUANTIDADE_APLICACOES; j++) {
                 close(respostas[j][0]); close(respostas[j][1]);
@@ -101,8 +105,9 @@ int iniciar_ambiente(AmbienteTeste *a) {
     if (a->kernel < 0) { a->kernel = -1; goto falha; }
     if (a->kernel == 0) {
         close(canal[1]); close(avisos[0]); close(avisos[1]);
-        char textos[QUANTIDADE_APLICACOES * 2 + 1][32];
-        char *argumentos[QUANTIDADE_APLICACOES * 2 + 3];
+        close(estados[0]);
+        char textos[QUANTIDADE_APLICACOES * 2 + 2][32];
+        char *argumentos[QUANTIDADE_APLICACOES * 2 + 4];
         argumentos[0] = "./KernelSim";
         snprintf(textos[0], sizeof textos[0], "%d", canal[0]);
         argumentos[1] = textos[0];
@@ -116,7 +121,11 @@ int iniciar_ambiente(AmbienteTeste *a) {
             argumentos[i + 2 + QUANTIDADE_APLICACOES] =
                 textos[i + 1 + QUANTIDADE_APLICACOES];
         }
-        argumentos[QUANTIDADE_APLICACOES * 2 + 2] = NULL;
+        snprintf(textos[QUANTIDADE_APLICACOES * 2 + 1],
+                 sizeof textos[QUANTIDADE_APLICACOES * 2 + 1], "%d", estados[1]);
+        argumentos[QUANTIDADE_APLICACOES * 2 + 2] =
+            textos[QUANTIDADE_APLICACOES * 2 + 1];
+        argumentos[QUANTIDADE_APLICACOES * 2 + 3] = NULL;
         /* Testamos os sinais usando avisos; nao precisamos analisar logs. */
         FILE *saida = fopen("/dev/null", "w");
         if (saida) {
@@ -129,6 +138,8 @@ int iniciar_ambiente(AmbienteTeste *a) {
 
     fechar(&canal[0]);
     fechar(&avisos[1]);
+    fechar(&estados[1]);
+    a->estados = estados[0]; estados[0] = -1;
     a->controle = canal[1]; canal[1] = -1;
     a->avisos = avisos[0]; avisos[0] = -1;
     for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
@@ -142,6 +153,7 @@ int iniciar_ambiente(AmbienteTeste *a) {
 falha:
     fechar(&canal[0]); fechar(&canal[1]);
     fechar(&avisos[0]); fechar(&avisos[1]);
+    fechar(&estados[0]); fechar(&estados[1]);
     for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
         fechar(&respostas[i][0]); fechar(&respostas[i][1]);
     }

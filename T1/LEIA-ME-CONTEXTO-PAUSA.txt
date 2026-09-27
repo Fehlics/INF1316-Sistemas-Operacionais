@@ -1,0 +1,75 @@
+INF1316 — T1: ATUALIZACAO DO CONTEXTO E PAUSA/RETOMADA
+
+ESCOPO DAS AULAS
+Esta etapa utiliza unicamente os mecanismos estudados: fork, exec, waitpid,
+pipes (pipe/read/write/close), sinais (signal, kill, SIGSTOP, SIGCONT,
+SIGTSTP), vetor de PCBs e Round Robin. Usleep e usado apenas para pequenas
+esperas, seguindo a versao anterior aprovada. Nenhum .sh, poll, select,
+threads, semaforos ou acesso a /proc foi acrescentado.
+
+MODULOS ALTERADOS
+- trabalho.h: acrescenta EVENTO_CONTEXTO, EVENTO_PAUSAR, EVENTO_MOSTRAR,
+  EVENTO_RETOMAR e a estrutura EstadoSimulador para transmitir um snapshot.
+- Application.c: informa PC e N ao KernelSim no inicio de cada iteracao e
+  apos concluir uma syscall; continua esperando a conclusao da syscall e
+  a confirmacao do seu termino.
+- KernelSim.c: atualiza o PCB ao receber EVENTO_CONTEXTO; suspende a CPU
+  simulada ao receber PAUSAR; envia snapshots em uma pipe para Simulador;
+  ignora IRQs durante a pausa; na retomada continua a aplicacao anterior
+  ou chama o escalonador quando nao houver uma aplicacao executando.
+- Simulador.c: captura SIGTSTP de Ctrl+Z, para o InterController com
+  SIGSTOP e confirma a parada com waitpid(..., WUNTRACED). Envia PAUSAR,
+  aguarda a parada da aplicacao executando e solicita a fotografia;
+  imprime os dados e alterna Ctrl+Z para RETOMAR. Durante o encerramento,
+  tambem reativa o controlador antes de recolhe-lo se estiver parado.
+- testes/apoio.c e apoio.h: acrescentam a pipe de estados no ambiente
+  de testes, mantendo os testes mais antigos.
+- testes/TesteSyscalls.c e TesteTermino.c: reconhecem os checkpoints
+  EVENTO_CONTEXTO, validando a ordem dos eventos.
+- testes/TestePausa.c: testa o contexto atualizado, snapshots de processos
+  prontos e bloqueados, IRQs ignoradas durante pausa, retorno ao Round
+  Robin e Ctrl+Z real no Simulador.
+- testes/Testes.c e testes.h: incluem o setimo teste.
+
+COMO FUNCIONA
+As seis aplicacoes executam como processos Unix comuns. O sistema
+operacional preserva suas variaveis locais quando o KernelSim lhes envia
+SIGSTOP e quando depois envia SIGCONT. O KernelSim guarda em seu PCB a
+ultima atualizacao recebida de PC e N, alem dos parametros das syscalls.
+A pausa possui duas fases para garantir que os eventos pendentes de
+contexto anteriores a parada sejam consumidos antes de tirar o snapshot.
+As estatisticas impressas indicam LEITURAS e ESCRITAS completas da pipe
+do parceiro (a unica pipe simulada acessivel a cada aplicacao).
+
+USO
+1. Recompile TODOS os executaveis, inclusive os testes.
+2. Inicie ./Simulador no terminal, em primeiro plano.
+3. Pressione Ctrl+Z para congelar a simulacao e exibir os seis estados.
+4. Pressione Ctrl+Z novamente para retomar do ponto interrompido.
+5. Pressione Ctrl+C para encerrar, inclusive se estiver pausado.
+   Tambem funciona: kill -TSTP PID_SIMULADOR (um sinal de cada vez).
+
+COMPILACAO (dentro da pasta T1, no Linux)
+gcc -Wall -Wextra Simulador.c -o Simulador
+gcc -Wall -Wextra KernelSim.c -o KernelSim
+gcc -Wall -Wextra InterController.c -o InterController
+gcc -Wall -Wextra Application.c -o Application
+gcc -Wall -Wextra testes/Testes.c testes/apoio.c \
+    testes/TesteProcessos.c testes/TesteEscalonamento.c \
+    testes/TesteFilas.c testes/TesteSyscalls.c testes/TesteTermino.c \
+    testes/TestePipes.c testes/TestePausa.c -o Testes
+./Testes
+
+OBSERVACOES IMPORTANTES
+- Ctrl+Z e tratado pelo processo Simulador, em vez de suspender o grupo
+  pelo controle de tarefas da shell. Isso permite repetir Ctrl+Z para
+  alternar entre pausa e retomada. Os demais processos ignoram SIGTSTP;
+  o Simulador usa SIGSTOP/SIGCONT para controla-los.
+- O valor impresso para PC/N e o ultimo contexto comunicado pela aplicacao;
+  cada PC e comunicado imediatamente apos seu incremento e N e novamente
+  comunicado apos uma syscall. SIGSTOP/SIGCONT preservam os dados reais
+  do processo Unix durante a troca.
+- Na pausa, EXECUTANDO identifica quem ocupava a CPU simulada ANTES de
+  todos os processos serem fisicamente suspensos.
+- Os dois processos infinitos (KernelSim e InterController) continuam vivos
+  apos as seis aplicacoes terminarem ate o encerramento com Ctrl+C.

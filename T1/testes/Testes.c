@@ -4,7 +4,7 @@
 /* Executa todos os testes e informa quantos passaram. */
 int main(void) {
     int aprovados = 0;
-    int total = 6;
+    int total = 7;
     puts("=== TESTES DO SIMULADOR ===");
 
     if (testar_processos()) {
@@ -47,6 +47,13 @@ int main(void) {
         puts("[PASSOU] Seis buffers dos pipes simulados");
     } else {
         puts("[FALHOU] Seis buffers dos pipes simulados");
+    }
+
+    if (testar_pausa()) {
+        aprovados++;
+        puts("[PASSOU] Contexto, pausa e retomada do simulador");
+    } else {
+        puts("[FALHOU] Contexto, pausa e retomada do simulador");
     }
 
     printf("\nResultado: %d de %d testes passaram.\n", aprovados, total);

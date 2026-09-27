@@ -46,6 +46,24 @@ static int solicitar_syscall(int fd_controle, int fd_resposta, int id,
     return 1;
 }
 
+/* Atualiza a copia de PC e N guardada no KernelSim. A escrita da mensagem
+ * pequena ocorre de uma vez, como nos outros eventos de controle. */
+static int informar_contexto(int controle, int id, int pc, int n) {
+    MensagemControle mensagem = {0};
+    mensagem.tipo = EVENTO_CONTEXTO;
+    mensagem.pedido.id_aplicacao = id;
+    mensagem.pedido.pc = pc;
+    mensagem.pedido.n = n;
+    ssize_t escritos;
+    do { escritos = write(controle, &mensagem, sizeof mensagem); }
+    while (escritos < 0 && errno == EINTR);
+    if (escritos != (ssize_t)sizeof mensagem) {
+        perror("Application: atualizacao de contexto");
+        return 0;
+    }
+    return 1;
+}
+
 /* Avisa o kernel quando a ultima iteracao foi executada.
  * Aguarda confirmacao para que o kernel registre o termino antes do exit. */
 static int avisar_termino(int controle, int fd_resposta, int id, int pc, int n) {
@@ -110,6 +128,11 @@ int main(int argc, char *argv[]) {
        Assim sao executadas exatamente MAX_ITERACOES iteracoes normalmente. */
     while (pc < limite) {
         pc++;
+        if (!informar_contexto(fd_controle, id, pc, n)) {
+            close(fd_controle);
+            close(fd_resposta);
+            return 1;
+        }
         sleep(1);
         Operacao operacao = NENHUMA_OPERACAO;
         if (!sem_syscall && teste && pc == 2 && id == 1) operacao = ENVIAR;
@@ -120,6 +143,14 @@ int main(int argc, char *argv[]) {
         if (operacao != NENHUMA_OPERACAO &&
             !solicitar_syscall(fd_controle, fd_resposta, id,
                               operacao, pc, &n)) {
+            close(fd_controle);
+            close(fd_resposta);
+            return 1;
+        }
+        /* RECV pode ter alterado N; atualiza o contexto antes da proxima
+         * iteracao. O contexto de SEND tambem fica registrado aqui. */
+        if (operacao != NENHUMA_OPERACAO &&
+            !informar_contexto(fd_controle, id, pc, n)) {
             close(fd_controle);
             close(fd_resposta);
             return 1;

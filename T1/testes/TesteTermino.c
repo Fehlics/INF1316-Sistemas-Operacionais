@@ -42,19 +42,29 @@ static int testar_aviso_da_aplicacao(void) {
     close(controle[1]); close(resposta[0]);
 
     MensagemControle aviso;
-    size_t total = 0;
-    int ok = 0;
-    while (total < sizeof aviso) {
-        ssize_t n = read(controle[0], (char *)&aviso + total,
-                         sizeof aviso - total);
-        if (n == 0) break;
-        if (n < 0) {
-            if (errno == EINTR) continue;
+    int ok = 0, passos = 0, mensagens_inteiras = 0;
+    for (;;) {
+        size_t total = 0;
+        while (total < sizeof aviso) {
+            ssize_t n = read(controle[0], (char *)&aviso + total,
+                             sizeof aviso - total);
+            if (n == 0) break;
+            if (n < 0) {
+                if (errno == EINTR) continue;
+                break;
+            }
+            total += (size_t)n;
+        }
+        if (total != sizeof aviso) break;
+        if (aviso.tipo != EVENTO_CONTEXTO) {
+            mensagens_inteiras = 1;
             break;
         }
-        total += (size_t)n;
+        passos++;
+        if (aviso.pedido.pc != passos || passos > 3) break;
     }
-    if (total == sizeof aviso && aviso.tipo == EVENTO_TERMINO &&
+    if (passos == 3 && mensagens_inteiras &&
+        aviso.tipo == EVENTO_TERMINO &&
         aviso.pedido.id_aplicacao == 3 && aviso.pedido.pc == 3 &&
         aviso.pedido.n == 0 && aviso.pedido.operacao == NENHUMA_OPERACAO) {
         int status;
