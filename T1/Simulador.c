@@ -11,8 +11,11 @@ volatile sig_atomic_t pausar = 0;
 
 int controle[2], estados[2], respostas[TOTAL][2];
 pid_t filhos[TOTAL] = {0};
-pid_t kernel = 0, controlador = 0;
-char texto_controle[20], texto_resp[TOTAL][20], texto_pid[TOTAL][24];
+pid_t kernel = 0;
+pid_t controlador = 0;
+char texto_controle[20];
+char texto_resp[TOTAL][20];
+char texto_pid[TOTAL][24];
 int restantes = TOTAL;
 
 void ctrl_c(int sinal) {
@@ -36,16 +39,27 @@ void mostrar(Fotografia f) {
     puts("===== PROCESSOS PAUSADOS =====");
     for (int i = 0; i < TOTAL; i++) {
         Processo p = f.processos[i];
+        char *cpu = "NAO";
+        if (f.atual == i)
+            cpu = "SIM";
         printf("A%d PC=%d N=%d ESTADO=%s CPU=%s ", i + 1,
-               p.pc, p.n, nomes[p.estado], f.atual == i ? "SIM" : "NAO");
+               p.pc, p.n, nomes[p.estado], cpu);
 
         if (p.estado == BLOQUEADO) {
-            printf("PIPE=%d OPERACAO=%s ENDERECO=%s ", i / 2 + 1,
-                   p.op == ENVIAR ? "SEND" : "RECV",
-                   p.endereco == END_PC ? "PC" : "N");
+            char *operacao = "RECV";
+            char *endereco = "N";
+            if (p.op == ENVIAR)
+                operacao = "SEND";
+            if (p.endereco == END_PC)
+                endereco = "PC";
+            printf("PIPE=%d OPERACAO=%s ENDERECO=%s ",
+                   i / 2 + 1, operacao, endereco);
         }
+        char *terminado = "NAO";
+        if (p.estado == TERMINADO)
+            terminado = "SIM";
         printf("LEITURAS=%d ESCRITAS=%d TERMINADO=%s\n",
-               p.leituras, p.escritas, p.estado == TERMINADO ? "SIM" : "NAO");
+               p.leituras, p.escritas, terminado);
     }
 }
 
