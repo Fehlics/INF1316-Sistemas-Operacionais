@@ -43,11 +43,13 @@ static int testar_operacao(int id, Operacao operacao, int valor) {
         mensagem.tipo == EVENTO_SYSCALL &&
         mensagem.pedido.id_aplicacao == id &&
         mensagem.pedido.operacao == operacao &&
+        mensagem.pedido.endereco ==
+            (operacao == ENVIAR ? ENDERECO_PC : ENDERECO_N) &&
         mensagem.pedido.pc == 2) {
         int estado;
         /* O filho continua vivo porque seu read da resposta bloqueia. */
         if (waitpid(filho, &estado, WNOHANG) == 0) {
-            RespostaSyscall r = {id, operacao, valor};
+            RespostaSyscall r = {id, operacao, valor, 2};
             if (write(resposta[1], &r, sizeof r) == (ssize_t)sizeof r) {
                 char texto[1024] = {0}, esperado[100];
                 size_t total = 0;
