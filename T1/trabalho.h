@@ -27,20 +27,33 @@ enum { SEM_ENDERECO, END_PC, END_N };
 enum { PRONTO, EXECUTANDO, BLOQUEADO, TERMINADO };
 
 typedef struct {
-    int tipo, id, op, pc, n, endereco;
+    int tipo;
+    int id;
+    int op;
+    int pc;
+    int n;
+    int endereco;
 } Mensagem;
 
 typedef struct {
-    int op, pc, n;
+    int op;
+    int pc;
+    int n;
 } Resposta;
 
 typedef struct {
     pid_t pid;
-    int pc, n, estado, op, endereco;
-    int leituras, escritas;
+    int pc;
+    int n;
+    int estado;
+    int op;
+    int endereco;
+    int leituras;
+    int escritas;
 } Processo;
 
 typedef struct {
-    int fase, atual;
+    int fase;
+    int atual;
     Processo processos[TOTAL];
 } Fotografia;
