@@ -139,7 +139,11 @@ static int retomar_sistema(int controle, int fd_estado, pid_t controlador) {
 }
 
 static void finalizar(pid_t aplicativos[], pid_t kernel, pid_t controlador) {
-    if (controlador > 0) kill(controlador, SIGTERM);
+    if (controlador > 0) {
+        /* SIGTERM nao encerra um processo parado ate receber SIGCONT. */
+        kill(controlador, SIGTERM);
+        kill(controlador, SIGCONT);
+    }
     if (kernel > 0) kill(kernel, SIGTERM);
     for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
         if (aplicativos[i] > 0) {
@@ -154,7 +158,8 @@ static void finalizar(pid_t aplicativos[], pid_t kernel, pid_t controlador) {
 }
 
 int main(void) {
-    int controle[2]; /* InterController e Application escrevem; KernelSim le. */
+    int controle[2]; /* Aplicacoes, controlador e Simulador escrevem. */
+    int canal_estado[2]; /* KernelSim informa snapshot ao Simulador. */
     int respostas[QUANTIDADE_APLICACOES][2];
     pid_t aplicativos[QUANTIDADE_APLICACOES] = {0};
     pid_t kernel = -1, controlador = -1;
@@ -163,8 +168,15 @@ int main(void) {
     char texto_controle[32];
     setbuf(stdout, NULL);
     signal(SIGINT, ao_interromper);
+    signal(SIGTSTP, ao_pausar);
+    signal(SIGPIPE, SIG_IGN); /* Kernel interrompido nao mata o Simulador. */
 
     if (pipe(controle) == -1) { perror("pipe controle"); return 1; }
+    if (pipe(canal_estado) == -1) {
+        perror("pipe estados");
+        close(controle[0]); close(controle[1]);
+        return 1;
+    }
     snprintf(texto_controle, sizeof texto_controle, "%d", controle[1]);
     for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
         if (pipe(respostas[i]) == -1) {
@@ -173,6 +185,7 @@ int main(void) {
                 close(respostas[j][0]); close(respostas[j][1]);
             }
             close(controle[0]); close(controle[1]);
+            close(canal_estado[0]); close(canal_estado[1]);
             return 1;
         }
         snprintf(texto_respostas[i], sizeof texto_respostas[i], "%d",
@@ -190,6 +203,8 @@ int main(void) {
         if (pid == 0) {
             char id[16], fd_resposta[32];
             signal(SIGINT, SIG_DFL);
+            signal(SIGTSTP, SIG_IGN); /* Ctrl+Z e tratado pelo Simulador. */
+            close(canal_estado[0]); close(canal_estado[1]);
             close(controle[0]);
             for (int j = 0; j < QUANTIDADE_APLICACOES; j++) {
                 close(respostas[j][1]);
@@ -217,17 +232,20 @@ int main(void) {
         if (kernel < 0) {
             perror("fork KernelSim"); encerrar = 1;
         } else if (kernel == 0) {
-            char fd_leitura[32];
+            char fd_leitura[32], fd_estado[32];
             signal(SIGINT, SIG_DFL);
+            signal(SIGTSTP, SIG_IGN);
+            close(canal_estado[0]);
             close(controle[1]);
             for (int j = 0; j < QUANTIDADE_APLICACOES; j++)
                 close(respostas[j][0]);
             snprintf(fd_leitura, sizeof fd_leitura, "%d", controle[0]);
+            snprintf(fd_estado, sizeof fd_estado, "%d", canal_estado[1]);
             execl("./KernelSim", "KernelSim", fd_leitura,
                   texto_respostas[0], texto_respostas[1], texto_respostas[2],
                   texto_respostas[3], texto_respostas[4], texto_respostas[5],
                   pids[0], pids[1], pids[2], pids[3], pids[4], pids[5],
-                  (char *)NULL);
+                  fd_estado, (char *)NULL);
             perror("exec KernelSim");
             _exit(1);
         } else {
@@ -241,6 +259,8 @@ int main(void) {
             perror("fork InterController"); encerrar = 1;
         } else if (controlador == 0) {
             signal(SIGINT, SIG_DFL);
+            signal(SIGTSTP, SIG_IGN);
+            close(canal_estado[0]); close(canal_estado[1]);
             close(controle[0]);
             for (int j = 0; j < QUANTIDADE_APLICACOES; j++) {
                 close(respostas[j][0]); close(respostas[j][1]);
@@ -255,16 +275,30 @@ int main(void) {
         }
     }
 
-    close(controle[0]); close(controle[1]);
+    close(controle[0]);
+    close(canal_estado[1]);
     for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
         close(respostas[i][0]); close(respostas[i][1]);
     }
 
     if (!encerrar) {
-        puts("[Simulador] Processos iniciados. Ctrl+C para encerrar.");
-        /* Ainda falta a pausa coordenada com Ctrl+Z. */
+        puts("[Simulador] Processos iniciados. Ctrl+Z pausa/retoma; Ctrl+C encerra.");
+        int pausado = 0;
         int restantes = QUANTIDADE_APLICACOES;
         while (!encerrar) {
+            if (alternar_pausa) {
+                alternar_pausa = 0;
+                int sucesso = pausado ?
+                    retomar_sistema(controle[1], canal_estado[0], controlador) :
+                    pausar_sistema(controle[1], canal_estado[0],
+                                  controlador, aplicativos, &restantes);
+                if (!sucesso) {
+                    puts("[Simulador] Falha ao mudar o estado da pausa.");
+                    encerrar = 1;
+                    break;
+                }
+                pausado = !pausado;
+            }
             int estado;
             /* Recolhe qualquer filho terminado, evitando processos zumbis. */
             pid_t terminou = waitpid(-1, &estado, WNOHANG);
@@ -297,6 +331,8 @@ int main(void) {
             if (!encerrar) sleep(1);
         }
     }
+    close(controle[1]);
+    close(canal_estado[0]);
     finalizar(aplicativos, kernel, controlador);
     puts("[Simulador] Encerrado.");
     return encerrar ? 130 : 0;
