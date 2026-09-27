@@ -8,9 +8,134 @@
 
 /* O tratador so altera uma variavel, como nos exemplos de sinais. */
 static volatile sig_atomic_t encerrar = 0;
+static volatile sig_atomic_t alternar_pausa = 0;
 static void ao_interromper(int sinal) {
     (void)sinal;
     encerrar = 1;
+}
+
+static void ao_pausar(int sinal) {
+    (void)sinal;
+    alternar_pausa = 1; /* Tratadores so alteram flags. */
+}
+
+/* Eventos simples enviados pela mesma pipe dos aplicativos/IRQ. */
+static int solicitar_ao_kernel(int controle, TipoEvento tipo) {
+    MensagemControle mensagem = {0};
+    mensagem.tipo = tipo;
+    ssize_t escritos;
+    do { escritos = write(controle, &mensagem, sizeof mensagem); }
+    while (escritos < 0 && errno == EINTR);
+    return escritos == (ssize_t)sizeof mensagem;
+}
+
+static int receber_estado(int fd, EstadoSimulador *estado) {
+    size_t total = 0;
+    while (total < sizeof *estado) {
+        ssize_t lidos = read(fd, (char *)estado + total, sizeof *estado - total);
+        if (lidos == 0) return 0;
+        if (lidos < 0) {
+            if (errno == EINTR) {
+                if (encerrar) return 0;
+                continue;
+            }
+            return 0;
+        }
+        total += (size_t)lidos;
+    }
+    return 1;
+}
+
+static const char *nome_estado(EstadoProcesso estado) {
+    switch (estado) {
+        case PRONTO: return "PRONTO";
+        case EXECUTANDO: return "EXECUTANDO (suspenso na pausa)";
+        case BLOQUEADO_LEITURA: return "BLOQUEADO";
+        case BLOQUEADO_ESCRITA: return "BLOQUEADO";
+        case TERMINADO: return "TERMINADO";
+    }
+    return "DESCONHECIDO";
+}
+
+static void mostrar_estados(const EstadoSimulador *estado) {
+    printf("\n[Simulador] ===== ESTADO DOS PROCESSOS (PAUSADO) =====\n");
+    printf("[Simulador] CPU no instante da pausa: %s",
+           estado->executando == 0 ? "nenhuma aplicacao" : "A");
+    if (estado->executando != 0) printf("%d", estado->executando);
+    putchar('\n');
+    for (int i = 0; i < QUANTIDADE_APLICACOES; i++) {
+        const Processo *p = &estado->processos[i];
+        printf("[Estado] A%d PID=%ld PC=%d N=%d ESTADO=%s",
+               p->id, (long)p->pid, p->pc, p->n, nome_estado(p->estado));
+        if (p->operacao_pendente != NENHUMA_OPERACAO) {
+            printf(" DISPOSITIVO=pipe%d OPERACAO=%s",
+                   i / 2 + 1,
+                   p->operacao_pendente == ENVIAR ? "SEND" : "RECV");
+        } else {
+            printf(" DISPOSITIVO=nenhum OPERACAO=nenhuma");
+        }
+        printf(" EXECUTANDO=%s LEITURAS=%d ESCRITAS=%d TERMINADO=%s\n",
+               p->estado == EXECUTANDO ? "sim (antes da pausa)" : "nao",
+               p->leituras, p->escritas,
+               p->estado == TERMINADO ? "sim" : "nao");
+    }
+    puts("[Simulador] Ctrl+Z novamente para retomar.\n");
+}
+
+/* Primeira fase: parar o controlador e pedir ao kernel que pare a CPU.
+ * Segunda: apos a parada, receber a fotografia pela pipe de estados.
+ * Nao usamos poll/select, memoria compartilhada ou threads. */
+static int pausar_sistema(int controle, int fd_estado, pid_t controlador,
+                         pid_t aplicativos[], int *restantes) {
+    if (controlador > 0) {
+        if (kill(controlador, SIGSTOP) == -1) return 0;
+        /* Aguarda a parada REAL do controlador: nenhuma interrupcao
+           nova pode ficar atras do evento de pausa na pipe. */
+        int situacao, retorno;
+        do { retorno = waitpid(controlador, &situacao, WUNTRACED); }
+        while (retorno < 0 && errno == EINTR && !encerrar);
+        if (retorno != controlador || !WIFSTOPPED(situacao)) return 0;
+    }
+    if (!solicitar_ao_kernel(controle, EVENTO_PAUSAR)) return 0;
+    EstadoSimulador estado;
+    if (!receber_estado(fd_estado, &estado) || estado.fase != 1) return 0;
+    int indice = estado.executando - 1;
+    if (indice >= 0 && indice < QUANTIDADE_APLICACOES && aplicativos[indice] > 0) {
+        /* O kernel ja enviou SIGSTOP. Aguardamos o evento de parada antes
+         * de solicitar a fotografia definitiva. */
+        for (int tentativas = 0; tentativas < 50; tentativas++) {
+            int situacao;
+            pid_t retorno = waitpid(aplicativos[indice], &situacao,
+                                   WUNTRACED | WNOHANG);
+            if (retorno == aplicativos[indice]) {
+                if (WIFEXITED(situacao) || WIFSIGNALED(situacao)) {
+                    /* Ja foi recolhido por este waitpid. */
+                    aplicativos[indice] = 0;
+                    (*restantes)--;
+                    if (*restantes == 0)
+                        puts("[Simulador] As seis aplicacoes foram recolhidas.");
+                }
+                break;
+            }
+            if (retorno < 0 && errno != EINTR) break;
+            usleep(10000);
+        }
+    }
+    /* Esta mensagem entra na pipe DEPOIS das atualizacoes de contexto
+       escritas pelas aplicacoes antes de pararem. */
+    if (!solicitar_ao_kernel(controle, EVENTO_MOSTRAR) ||
+        !receber_estado(fd_estado, &estado) || estado.fase != 2) return 0;
+    mostrar_estados(&estado);
+    return 1;
+}
+
+static int retomar_sistema(int controle, int fd_estado, pid_t controlador) {
+    EstadoSimulador estado;
+    if (!solicitar_ao_kernel(controle, EVENTO_RETOMAR) ||
+        !receber_estado(fd_estado, &estado) || estado.fase != 3) return 0;
+    if (controlador > 0) kill(controlador, SIGCONT);
+    puts("[Simulador] Execucao retomada. Ctrl+Z para pausar novamente.");
+    return 1;
 }
 
 static void finalizar(pid_t aplicativos[], pid_t kernel, pid_t controlador) {
