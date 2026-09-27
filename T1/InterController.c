@@ -8,7 +8,6 @@ int main(int argc, char *argv[]) {
 
     int controle = atoi(argv[1]);
     while (1) {
-        /* O enunciado permite adaptar o intervalo do IRQ0 para 1 segundo. */
         sleep(1);
 
         Mensagem m = {0};

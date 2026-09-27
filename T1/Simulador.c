@@ -5,7 +5,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-/* Essas duas variaveis sao alteradas quando chegam os sinais do teclado. */
 volatile sig_atomic_t encerrar = 0;
 volatile sig_atomic_t pausar = 0;
 
@@ -42,8 +41,7 @@ void mostrar(Fotografia f) {
         char *cpu = "NAO";
         if (f.atual == i)
             cpu = "SIM";
-        printf("A%d PC=%d N=%d ESTADO=%s CPU=%s ", i + 1,
-               p.pc, p.n, nomes[p.estado], cpu);
+        printf("A%d PC=%d N=%d ESTADO=%s CPU=%s ", i + 1, p.pc, p.n, nomes[p.estado], cpu);
 
         if (p.estado == BLOQUEADO) {
             char *operacao = "RECV";
@@ -52,18 +50,15 @@ void mostrar(Fotografia f) {
                 operacao = "SEND";
             if (p.endereco == END_PC)
                 endereco = "PC";
-            printf("PIPE=%d OPERACAO=%s ENDERECO=%s ",
-                   i / 2 + 1, operacao, endereco);
+            printf("PIPE=%d OPERACAO=%s ENDERECO=%s ", i / 2 + 1, operacao, endereco);
         }
         char *terminado = "NAO";
         if (p.estado == TERMINADO)
             terminado = "SIM";
-        printf("LEITURAS=%d ESCRITAS=%d TERMINADO=%s\n",
-               p.leituras, p.escritas, terminado);
+        printf("LEITURAS=%d ESCRITAS=%d TERMINADO=%s\n", p.leituras, p.escritas, terminado);
     }
 }
 
-/* Primeiro para o controlador; depois pede ao KernelSim os seis estados. */
 int mudar_pausa(int parado) {
     Fotografia f;
     int status;
@@ -138,8 +133,7 @@ int criar_aplicacoes(void) {
             snprintf(id, sizeof id, "%d", i + 1);
             snprintf(fd, sizeof fd, "%d", respostas[i][0]);
             raise(SIGSTOP);
-            execl("./Application", "Application", id, texto_controle,
-                  fd, (char *)NULL);
+            execl("./Application", "Application", id, texto_controle, fd, (char *)NULL);
             exit(1);
         }
 
@@ -168,11 +162,7 @@ int criar_kernel(void) {
         char fd_controle[20], fd_estado[20];
         snprintf(fd_controle, sizeof fd_controle, "%d", controle[0]);
         snprintf(fd_estado, sizeof fd_estado, "%d", estados[1]);
-        execl("./KernelSim", "KernelSim", fd_controle,
-              texto_resp[0], texto_resp[1], texto_resp[2],
-              texto_resp[3], texto_resp[4], texto_resp[5],
-              texto_pid[0], texto_pid[1], texto_pid[2],
-              texto_pid[3], texto_pid[4], texto_pid[5], fd_estado, (char *)NULL);
+        execl("./KernelSim", "KernelSim", fd_controle, texto_resp[0], texto_resp[1], texto_resp[2], texto_resp[3], texto_resp[4], texto_resp[5], texto_pid[0], texto_pid[1], texto_pid[2], texto_pid[3], texto_pid[4], texto_pid[5], fd_estado, (char *)NULL);
         exit(1);
     }
     return 1;
@@ -193,8 +183,7 @@ int criar_controlador(void) {
             close(respostas[i][0]);
             close(respostas[i][1]);
         }
-        execl("./InterController", "InterController", texto_controle,
-              (char *)NULL);
+        execl("./InterController", "InterController", texto_controle, (char *)NULL);
         exit(1);
     }
     return 1;

@@ -47,7 +47,8 @@ int main(int argc, char *argv[]) {
                 op = RECEBER;
             if (modo == 3 && id % 2 == 0)
                 op = RECEBER;
-        } else if (modo == 0 && getenv("TESTE_RAPIDO") == NULL) {
+        }
+        else if (modo == 0 && getenv("TESTE_RAPIDO") == NULL) {
             if (rand() % 100 < 15) {
                 if (rand() % 2 == 0)
                     op = ENVIAR;

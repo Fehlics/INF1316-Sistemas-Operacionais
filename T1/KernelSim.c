@@ -128,8 +128,7 @@ void concluir(int op) {
 
 void terminar(Mensagem m) {
     int i = m.id - 1;
-    if (i < 0 || i >= TOTAL || p[i].estado == TERMINADO ||
-        p[i].estado == BLOQUEADO)
+    if (i < 0 || i >= TOTAL || p[i].estado == TERMINADO || p[i].estado == BLOQUEADO)
         return;
 
     int era_atual = atual == i;
@@ -140,8 +139,7 @@ void terminar(Mensagem m) {
     p[i].op = NENHUMA;
     p[i].endereco = SEM_ENDERECO;
     terminados++;
-    printf("TERMINOU A%d PC=%d N=%d L=%d E=%d\n", i + 1,
-           m.pc, m.n, p[i].leituras, p[i].escritas);
+    printf("TERMINOU A%d PC=%d N=%d L=%d E=%d\n", i + 1, m.pc, m.n, p[i].leituras, p[i].escritas);
 
     Resposta r = { .op = NENHUMA, .pc = m.pc, .n = m.n };
     write(respostas[i], &r, sizeof r);

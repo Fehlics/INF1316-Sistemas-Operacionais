@@ -6,7 +6,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-/* Cada teste inicia o mesmo ./Simulador usado na execucao normal. */
 int executar_teste(int maximo, int modo, int com_pausa) {
     pid_t pid = fork();
     if (pid < 0)
