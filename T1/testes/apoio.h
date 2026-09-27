@@ -6,6 +6,7 @@ typedef struct {
     int controle;                /* Escrita dos pedidos e das interrupcoes. */
     int resposta[QUANTIDADE_APLICACOES];
     int avisos;                  /* Cada auxiliar avisa quando recebe SIGCONT. */
+    int estados;                 /* O kernel devolve fotografias do simulador. */
     pid_t auxiliares[QUANTIDADE_APLICACOES];
     pid_t kernel;
 } AmbienteTeste;
