@@ -4,15 +4,22 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-static Processo p[TOTAL];
-static int respostas[TOTAL], estado_fd;
-static int atual = -1, ultimo = -1, pausado, terminados;
-static int fila[2][TOTAL], inicio[2], quantidade[2];
-static int buffer[TOTAL][MAX], pos[TOTAL], tamanho[TOTAL];
-static int confirmar_depois[TOTAL];
-static int passos[TOTAL], erros[TOTAL];
+Processo p[TOTAL];
+int respostas[TOTAL];
+int estado_fd;
+int atual = -1;
+int ultimo = -1;
+int pausado = 0;
+int terminados = 0;
+int fila[2][TOTAL];
+int inicio[2];
+int quantidade[2];
+int buffer[TOTAL][MAX];
+int pos[TOTAL];
+int tamanho[TOTAL];
+int confirmar_depois[TOTAL];
 
-static void escalonar(void) {
+void escalonar(void) {
     if (pausado)
         return;
 
@@ -34,7 +41,7 @@ static void escalonar(void) {
     }
 }
 
-static void foto(int fase) {
+void foto(int fase) {
     Fotografia f = { .fase = fase, .atual = atual };
     for (int i = 0; i < TOTAL; i++)
         f.processos[i] = p[i];
@@ -42,16 +49,23 @@ static void foto(int fase) {
     write(estado_fd, &f, sizeof f);
 }
 
-static void pedido(Mensagem m) {
+void pedido(Mensagem m) {
     int i = m.id - 1;
-    if (i < 0 || i >= TOTAL ||
-        (m.op != RECEBER && m.op != ENVIAR))
+    if (i < 0 || i >= TOTAL)
+        return;
+    if (m.op != RECEBER && m.op != ENVIAR)
+        return;
+    if (m.op == RECEBER && m.endereco != END_N)
+        return;
+    if (m.op == ENVIAR && m.endereco != END_PC)
         return;
 
-    int tipo = m.op == RECEBER ? 0 : 1;
-    if (m.endereco != (m.op == ENVIAR ? END_PC : END_N) ||
-        (p[i].estado != PRONTO && p[i].estado != EXECUTANDO) ||
-        quantidade[tipo] == TOTAL)
+    int tipo = 0;
+    if (m.op == ENVIAR)
+        tipo = 1;
+    if (p[i].estado != PRONTO && p[i].estado != EXECUTANDO)
+        return;
+    if (quantidade[tipo] == TOTAL)
         return;
 
     int fim = (inicio[tipo] + quantidade[tipo]) % TOTAL;
@@ -70,8 +84,10 @@ static void pedido(Mensagem m) {
     }
 }
 
-static void concluir(int op) {
-    int tipo = op == RECEBER ? 0 : 1;
+void concluir(int op) {
+    int tipo = 0;
+    if (op == ENVIAR)
+        tipo = 1;
     if (!quantidade[tipo])
         return;
 
@@ -87,10 +103,12 @@ static void concluir(int op) {
         printf("SEND A%d PC=%d\n", i + 1, p[i].pc);
     } else {
         int parceiro = i % 2 == 0 ? i + 1 : i - 1;
-        p[i].n = tamanho[parceiro] ? buffer[parceiro][pos[parceiro]] : 0;
-        if (tamanho[parceiro]) {
+        if (tamanho[parceiro] > 0) {
+            p[i].n = buffer[parceiro][pos[parceiro]];
             pos[parceiro] = (pos[parceiro] + 1) % MAX;
             tamanho[parceiro]--;
+        } else {
+            p[i].n = 0;
         }
         p[i].leituras++;
         printf("RECV A%d N=%d\n", i + 1, p[i].n);
@@ -108,7 +126,7 @@ static void concluir(int op) {
         escalonar();
 }
 
-static void terminar(Mensagem m) {
+void terminar(Mensagem m) {
     int i = m.id - 1;
     if (i < 0 || i >= TOTAL || p[i].estado == TERMINADO ||
         p[i].estado == BLOQUEADO)
@@ -124,9 +142,6 @@ static void terminar(Mensagem m) {
     terminados++;
     printf("TERMINOU A%d PC=%d N=%d L=%d E=%d\n", i + 1,
            m.pc, m.n, p[i].leituras, p[i].escritas);
-
-    if (getenv("TESTE_AUDIT"))
-        printf("AUDIT A%d CONT=%d ERROS=%d\n", i + 1, passos[i], erros[i]);
 
     Resposta r = { .op = NENHUMA, .pc = m.pc, .n = m.n };
     write(respostas[i], &r, sizeof r);
@@ -173,12 +188,6 @@ int main(int argc, char **argv) {
             if (p[i].estado == TERMINADO)
                 continue;
 
-            if (getenv("TESTE_AUDIT")) {
-                if (m.pc == passos[i] + 1)
-                    passos[i]++;
-                else if (m.pc != passos[i])
-                    erros[i]++;
-            }
             p[i].pc = m.pc;
             p[i].n = m.n;
         } else if (m.tipo == FIM) {
