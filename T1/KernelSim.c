@@ -4,15 +4,14 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-static Processo p[TOTAL];
-static int respostas[TOTAL], estado_fd;
-static int atual = -1, ultimo = -1, pausado, terminados;
-static int fila[2][TOTAL], inicio[2], quantidade[2];
-static int buffer[TOTAL][MAX], pos[TOTAL], tamanho[TOTAL];
-static int confirmar_depois[TOTAL];
-static int passos[TOTAL], erros[TOTAL];
+Processo p[TOTAL];
+int respostas[TOTAL], estado_fd;
+int atual = -1, ultimo = -1, pausado, terminados;
+int fila[2][TOTAL], inicio[2], quantidade[2];
+int buffer[TOTAL][MAX], pos[TOTAL], tamanho[TOTAL];
+int confirmar_depois[TOTAL];
 
-static void escalonar(void) {
+void escalonar(void) {
     if (pausado)
         return;
 
@@ -34,7 +33,7 @@ static void escalonar(void) {
     }
 }
 
-static void foto(int fase) {
+void foto(int fase) {
     Fotografia f = { .fase = fase, .atual = atual };
     for (int i = 0; i < TOTAL; i++)
         f.processos[i] = p[i];
@@ -42,7 +41,7 @@ static void foto(int fase) {
     write(estado_fd, &f, sizeof f);
 }
 
-static void pedido(Mensagem m) {
+void pedido(Mensagem m) {
     int i = m.id - 1;
     if (i < 0 || i >= TOTAL ||
         (m.op != RECEBER && m.op != ENVIAR))
@@ -70,7 +69,7 @@ static void pedido(Mensagem m) {
     }
 }
 
-static void concluir(int op) {
+void concluir(int op) {
     int tipo = op == RECEBER ? 0 : 1;
     if (!quantidade[tipo])
         return;
@@ -108,7 +107,7 @@ static void concluir(int op) {
         escalonar();
 }
 
-static void terminar(Mensagem m) {
+void terminar(Mensagem m) {
     int i = m.id - 1;
     if (i < 0 || i >= TOTAL || p[i].estado == TERMINADO ||
         p[i].estado == BLOQUEADO)
@@ -125,8 +124,6 @@ static void terminar(Mensagem m) {
     printf("TERMINOU A%d PC=%d N=%d L=%d E=%d\n", i + 1,
            m.pc, m.n, p[i].leituras, p[i].escritas);
 
-    if (getenv("TESTE_AUDIT"))
-        printf("AUDIT A%d CONT=%d ERROS=%d\n", i + 1, passos[i], erros[i]);
 
     Resposta r = { .op = NENHUMA, .pc = m.pc, .n = m.n };
     write(respostas[i], &r, sizeof r);
@@ -173,12 +170,6 @@ int main(int argc, char **argv) {
             if (p[i].estado == TERMINADO)
                 continue;
 
-            if (getenv("TESTE_AUDIT")) {
-                if (m.pc == passos[i] + 1)
-                    passos[i]++;
-                else if (m.pc != passos[i])
-                    erros[i]++;
-            }
             p[i].pc = m.pc;
             p[i].n = m.n;
         } else if (m.tipo == FIM) {
