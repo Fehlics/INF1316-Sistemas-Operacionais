@@ -2,30 +2,67 @@
 #include <sys/types.h>
 
 /*
-Tipos usados por todos os programas do trabalho.
+===============================================================================
+trabalho.h
+===============================================================================
 
-Simulador: módulo principal. cria e encerra os processos e controla Ctrl+Z.
-KernelSim: escalona, atende as chamadas e guarda os seis buffers.
-InterController: envia IRQ0, IRQ1 e IRQ2.
-Application: executa PC ate 5000 e troca dados com o parceiro.
+Este arquivo reune as definicoes compartilhadas pelos quatro programas do
+simulador. Ele funciona como o "vocabulário comum" do sistema.
 
-As pipes reais levam mensagens entre esses programas.
-Os tres pipes bidirecionais das aplicacoes sao simulados com seis vetores
-de inteiros dentro do KernelSim (um vetor para cada sentido).
+Visao geral dos modulos:
+- Simulador.c: cria todos os processos, controla Ctrl+Z/Ctrl+C e mostra estados.
+- KernelSim.c: faz o Round Robin, controla bloqueios, filas e pipes simulados.
+- InterController.c: gera as interrupcoes IRQ0, IRQ1 e IRQ2.
+- Application.c: codigo executado por A1...A6.
+- Testes.c: executa o Simulador em cenarios controlados.
 
-atoi: transforma um argumento de texto recebido por exec em numero.
-snprintf: transforma um numero em texto para passa-lo por exec.
-rand: escolhe aleatoriamente se a aplicacao solicita SEND ou RECV.
-getenv e setenv: ativam opcoes usadas apenas nos testes.
-sig_atomic_t: tipo seguro para as variaveis alteradas por sinais.
+Comunicacao:
+- Existem pipes REAIS do Unix entre os programas acima.
+- Os tres pipes bidirecionais pedidos no trabalho sao SIMULADOS pelo KernelSim
+  usando seis buffers de inteiros: um buffer para cada sentido de comunicacao.
+
+Funcoes auxiliares que aparecem no projeto:
+- atoi: converte texto para int. Ex.: "3" -> 3.
+- atol: converte texto para long, usado para recuperar PID.
+- snprintf: monta texto dentro de um vetor de char.
+- rand: gera numeros pseudoaleatorios.
+- getenv/setenv: leem/criam variaveis de ambiente usadas nos testes.
+- sig_atomic_t: tipo indicado para variaveis alteradas por tratadores de sinal.
+===============================================================================
 */
 
+/* Quantidade de aplicacoes e numero normal de iteracoes de cada uma. */
 enum { TOTAL = 6, MAX = 5000 };
+
+/*
+Tipos de mensagem enviados pela pipe principal de controle.
+IRQ       -> interrupcao enviada pelo InterController.
+PEDIDO    -> pedido de SEND ou RECV feito por uma Application.
+CONTEXTO  -> atualizacao de PC e N de uma Application.
+FIM       -> aviso de que a Application terminou.
+PAUSAR    -> inicia a pausa da simulacao.
+MOSTRAR   -> pede a fotografia definitiva dos processos pausados.
+RETOMAR   -> continua a execucao.
+*/
 enum { IRQ = 1, PEDIDO, CONTEXTO, FIM, PAUSAR, MOSTRAR, RETOMAR };
+
+/* Operacao associada a syscall simulada ou a interrupcao correspondente. */
 enum { NENHUMA, RECEBER, ENVIAR };
+
+/*
+Endereco LOGICO usado na syscall simulada:
+SEND envia o PC; RECV recebe o valor em N.
+Nao sao ponteiros reais entre processos diferentes.
+*/
 enum { SEM_ENDERECO, END_PC, END_N };
+
+/* Estados usados no PCB simulado de cada Application. */
 enum { PRONTO, EXECUTANDO, BLOQUEADO, TERMINADO };
 
+/*
+Mensagem enviada pela pipe principal.
+Nem todos os campos sao usados em todos os tipos de mensagem.
+*/
 typedef struct {
     int tipo;
     int id;
@@ -35,23 +72,36 @@ typedef struct {
     int endereco;
 } Mensagem;
 
+/*
+Resposta do KernelSim para uma Application.
+A resposta libera a Application que estava esperando uma syscall ou o termino.
+*/
 typedef struct {
     int op;
     int pc;
     int n;
 } Resposta;
 
+/*
+PCB simplificado de uma Application.
+Guarda exatamente as informacoes que o KernelSim precisa para escalonar,
+mostrar o estado do processo e representar o contexto pedido no trabalho.
+*/
 typedef struct {
-    pid_t pid;
-    int pc;
-    int n;
-    int estado;
-    int op;
-    int endereco;
-    int leituras;
-    int escritas;
+    pid_t pid;       /* PID real do processo Unix. */
+    int pc;          /* Program Counter simulado. */
+    int n;           /* Ultimo valor recebido do parceiro. */
+    int estado;      /* PRONTO, EXECUTANDO, BLOQUEADO ou TERMINADO. */
+    int op;          /* SEND/RECV pendente, se houver. */
+    int endereco;    /* END_PC ou END_N durante uma syscall. */
+    int leituras;    /* Quantas operacoes RECV ja foram concluidas. */
+    int escritas;    /* Quantas operacoes SEND ja foram concluidas. */
 } Processo;
 
+/*
+Fotografia enviada pelo KernelSim ao Simulador quando Ctrl+Z e usado.
+"atual" guarda o indice (0..5) da Application que estava usando a CPU.
+*/
 typedef struct {
     int fase;
     int atual;
