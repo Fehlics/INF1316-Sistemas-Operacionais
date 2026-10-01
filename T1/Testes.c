@@ -6,41 +6,12 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-/*
-===============================================================================
-Testes.c
-===============================================================================
-
-Os testes sao de integracao: eles executam o proprio ./Simulador.
-
-Nao tentam testar cada funcao isoladamente. A ideia e verificar se o sistema
-completo consegue executar e terminar normalmente em alguns cenarios simples.
-
-Variaveis de ambiente usadas:
-- TESTE_MAX: troca temporariamente o numero de iteracoes.
-- TESTE_OP: escolhe um padrao fixo de SEND/RECV.
-- TESTE_RAPIDO: remove a maior parte das esperas de 1 segundo.
-- TESTE_AUTO: faz o InterController gerar IRQ1/IRQ2 em todo ciclo e permite
-  que o Simulador encerre sozinho quando todas as Applications terminarem.
-===============================================================================
-*/
-
-/*
-Executa um cenario de teste.
-
-maximo     -> numero de iteracoes de cada Application.
-modo       -> padrao de comunicacao definido em Application.c.
-com_pausa  -> se vale 1, o teste tambem envia dois Ctrl+Z simulados.
-*/
 int executar_teste(int maximo, int modo, int com_pausa) {
     pid_t pid = fork();
     if (pid < 0)
         return 0;
 
     if (pid == 0) {
-        /*
-        O filho configura o cenario e depois e substituido por ./Simulador.
-        */
         char limite[16], operacao[8];
         snprintf(limite, sizeof limite, "%d", maximo);
         snprintf(operacao, sizeof operacao, "%d", modo);
@@ -52,10 +23,6 @@ int executar_teste(int maximo, int modo, int com_pausa) {
         exit(1);
     }
 
-    /*
-    Quando solicitado, o processo pai envia SIGTSTP ao Simulador.
-    O primeiro pausa e o segundo retoma.
-    */
     if (com_pausa) {
         sleep(1);
         kill(pid, SIGTSTP);
@@ -63,10 +30,6 @@ int executar_teste(int maximo, int modo, int com_pausa) {
         kill(pid, SIGTSTP);
     }
 
-    /*
-    Espera o Simulador terminar.
-    O teste passa quando o processo encerra normalmente com codigo 0.
-    */
     int status;
     if (waitpid(pid, &status, 0) != pid)
         return 0;
@@ -75,12 +38,7 @@ int executar_teste(int maximo, int modo, int com_pausa) {
     return WEXITSTATUS(status) == 0;
 }
 
-/* Executa a bateria curta ou, com argumento 5000, o teste prolongado. */
 int main(int argc, char *argv[]) {
-    /*
-    ./Testes 5000:
-    seis Applications x 5000 iteracoes, com comunicacao e pausa/retomada.
-    */
     if (argc == 2 && strcmp(argv[1], "5000") == 0) {
         puts("TESTE: 5000 iteracoes, comunicacao e Ctrl+Z");
         if (executar_teste(MAX, 1, 1)) {
@@ -91,7 +49,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    /* ./Testes sem argumentos: cinco cenarios rapidos. */
     int aprovados = 0;
     puts("TESTE 1: sem comunicacao");
     aprovados += executar_teste(20, 0, 0);
